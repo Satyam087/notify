@@ -1,6 +1,7 @@
 package com.npaas.notify.common.security;
 
 import java.io.IOException;
+import java.time.Instant;
 import java.util.List;
 
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -40,7 +41,7 @@ public class TenantApiKeyAuthenticationFilter extends OncePerRequestFilter {
             throws ServletException, IOException {
         String apiKey = request.getHeader(API_KEY_HEADER);
         if (apiKey == null || apiKey.isBlank()) {
-            response.sendError(HttpServletResponse.SC_UNAUTHORIZED, "Missing API key");
+            writeUnauthorized(response, "Missing API key");
             return;
         }
 
@@ -50,7 +51,7 @@ public class TenantApiKeyAuthenticationFilter extends OncePerRequestFilter {
             .orElse(null);
 
         if (tenantApiKey == null) {
-            response.sendError(HttpServletResponse.SC_UNAUTHORIZED, "Invalid API key");
+            writeUnauthorized(response, "Invalid API key");
             return;
         }
 
@@ -67,5 +68,13 @@ public class TenantApiKeyAuthenticationFilter extends OncePerRequestFilter {
             SecurityContextHolder.clearContext();
             TenantContext.clear();
         }
+    }
+
+    private void writeUnauthorized(HttpServletResponse response, String message) throws IOException {
+        response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+        response.setContentType("application/json");
+        response.getWriter().write("""
+            {"timestamp":"%s","status":401,"error":"Unauthorized","message":"%s"}
+            """.formatted(Instant.now(), message));
     }
 }

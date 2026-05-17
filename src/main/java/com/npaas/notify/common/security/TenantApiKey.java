@@ -43,6 +43,15 @@ public class TenantApiKey {
     protected TenantApiKey() {
     }
 
+    public TenantApiKey(UUID id, String tenantSlug, String name, String keyPrefix, String keyHash) {
+        this.id = id;
+        this.tenantSlug = tenantSlug;
+        this.name = name;
+        this.keyPrefix = keyPrefix;
+        this.keyHash = keyHash;
+        this.status = TenantApiKeyStatus.ACTIVE;
+    }
+
     @PrePersist
     void onCreate() {
         createdAt = Instant.now();

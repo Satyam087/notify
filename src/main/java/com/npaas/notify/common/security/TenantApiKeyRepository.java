@@ -8,4 +8,6 @@ import org.springframework.data.jpa.repository.JpaRepository;
 public interface TenantApiKeyRepository extends JpaRepository<TenantApiKey, UUID> {
 
     Optional<TenantApiKey> findByKeyHashAndStatus(String keyHash, TenantApiKeyStatus status);
+
+    boolean existsByKeyHash(String keyHash);
 }
