@@ -3,6 +3,8 @@ package com.npaas.notify.inapp;
 import java.util.List;
 import java.util.UUID;
 
+import com.npaas.notify.common.security.TenantAuthorizationService;
+
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -19,9 +21,13 @@ import jakarta.validation.constraints.NotBlank;
 public class InAppNotificationController {
 
     private final InAppNotificationService inAppNotificationService;
+    private final TenantAuthorizationService tenantAuthorizationService;
 
-    public InAppNotificationController(InAppNotificationService inAppNotificationService) {
+    public InAppNotificationController(
+            InAppNotificationService inAppNotificationService,
+            TenantAuthorizationService tenantAuthorizationService) {
         this.inAppNotificationService = inAppNotificationService;
+        this.tenantAuthorizationService = tenantAuthorizationService;
     }
 
     @GetMapping
@@ -29,6 +35,7 @@ public class InAppNotificationController {
             @RequestParam @NotBlank String tenantId,
             @RequestParam @NotBlank String userId,
             @RequestParam(defaultValue = "20") @Min(1) @Max(100) int limit) {
+        tenantAuthorizationService.requireTenant(tenantId);
         return inAppNotificationService.list(tenantId, userId, limit);
     }
 
@@ -36,6 +43,7 @@ public class InAppNotificationController {
     public UnreadCountResponse unreadCount(
             @RequestParam @NotBlank String tenantId,
             @RequestParam @NotBlank String userId) {
+        tenantAuthorizationService.requireTenant(tenantId);
         return inAppNotificationService.unreadCount(tenantId, userId);
     }
 
@@ -48,6 +56,7 @@ public class InAppNotificationController {
     public UnreadCountResponse markAllRead(
             @RequestParam @NotBlank String tenantId,
             @RequestParam @NotBlank String userId) {
+        tenantAuthorizationService.requireTenant(tenantId);
         return inAppNotificationService.markAllRead(tenantId, userId);
     }
 }

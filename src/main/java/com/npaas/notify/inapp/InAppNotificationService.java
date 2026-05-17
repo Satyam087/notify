@@ -8,6 +8,8 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.npaas.notify.common.security.TenantAuthorizationService;
+
 @Service
 public class InAppNotificationService {
 
@@ -15,9 +17,13 @@ public class InAppNotificationService {
     private static final int MAX_LIMIT = 100;
 
     private final InAppNotificationRepository inAppNotificationRepository;
+    private final TenantAuthorizationService tenantAuthorizationService;
 
-    public InAppNotificationService(InAppNotificationRepository inAppNotificationRepository) {
+    public InAppNotificationService(
+            InAppNotificationRepository inAppNotificationRepository,
+            TenantAuthorizationService tenantAuthorizationService) {
         this.inAppNotificationRepository = inAppNotificationRepository;
+        this.tenantAuthorizationService = tenantAuthorizationService;
     }
 
     @Transactional(readOnly = true)
@@ -42,6 +48,7 @@ public class InAppNotificationService {
         InAppNotification notification = inAppNotificationRepository
             .findById(notificationId)
             .orElseThrow(() -> new IllegalArgumentException("Notification not found"));
+        tenantAuthorizationService.requireTenant(notification.getTenantSlug());
         notification.markRead();
         return InAppNotificationResponse.from(notification);
     }
