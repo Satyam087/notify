@@ -10,18 +10,23 @@ import org.springframework.transaction.annotation.Transactional;
 import com.npaas.notify.events.QueuedNotificationEvent;
 import com.npaas.notify.rules.NotificationRule;
 import com.npaas.notify.rules.NotificationRuleRepository;
+import com.npaas.notify.templates.NotificationTemplate;
+import com.npaas.notify.templates.NotificationTemplateRepository;
 
 @Service
 public class NotificationJobService {
 
     private final NotificationJobRepository notificationJobRepository;
     private final NotificationRuleRepository notificationRuleRepository;
+    private final NotificationTemplateRepository notificationTemplateRepository;
 
     public NotificationJobService(
             NotificationJobRepository notificationJobRepository,
-            NotificationRuleRepository notificationRuleRepository) {
+            NotificationRuleRepository notificationRuleRepository,
+            NotificationTemplateRepository notificationTemplateRepository) {
         this.notificationJobRepository = notificationJobRepository;
         this.notificationRuleRepository = notificationRuleRepository;
+        this.notificationTemplateRepository = notificationTemplateRepository;
     }
 
     @Transactional
@@ -38,10 +43,24 @@ public class NotificationJobService {
         if (notificationJobRepository.existsByEventIdAndChannel(event.eventId(), channel)) {
             return;
         }
+
+        NotificationTemplate template = notificationTemplateRepository
+            .findFirstByTenantSlugAndEventTypeAndChannelAndEnabledTrueOrderByCreatedAtDesc(
+                event.tenantId(),
+                event.eventType(),
+                channel
+            )
+            .orElse(null);
+
+        if (template == null) {
+            return;
+        }
+
         try {
             NotificationJob job = new NotificationJob(
                 UUID.randomUUID(),
                 event.eventId(),
+                template.getId(),
                 event.tenantId(),
                 channel,
                 NotificationJobStatus.PENDING

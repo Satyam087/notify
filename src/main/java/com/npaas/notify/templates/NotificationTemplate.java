@@ -1,7 +1,9 @@
-package com.npaas.notify.jobs;
+package com.npaas.notify.templates;
 
 import java.time.Instant;
 import java.util.UUID;
+
+import com.npaas.notify.jobs.NotificationChannel;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -13,34 +15,33 @@ import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
 
 @Entity
-@Table(name = "notification_jobs")
-public class NotificationJob {
+@Table(name = "notification_templates")
+public class NotificationTemplate {
 
     @Id
     private UUID id;
 
-    @Column(name = "event_id", nullable = false)
-    private UUID eventId;
-
-    @Column(name = "template_id")
-    private UUID templateId;
-
     @Column(name = "tenant_slug", nullable = false, length = 80)
     private String tenantSlug;
+
+    @Column(name = "event_type", nullable = false, length = 120)
+    private String eventType;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 32)
     private NotificationChannel channel;
 
-    @Enumerated(EnumType.STRING)
-    @Column(nullable = false, length = 32)
-    private NotificationJobStatus status;
+    @Column(name = "template_key", nullable = false, length = 160)
+    private String templateKey;
+
+    @Column(name = "subject_template", nullable = false, length = 240)
+    private String subjectTemplate;
+
+    @Column(name = "body_template", nullable = false, columnDefinition = "text")
+    private String bodyTemplate;
 
     @Column(nullable = false)
-    private int attempts;
-
-    @Column(name = "next_attempt_at")
-    private Instant nextAttemptAt;
+    private boolean enabled;
 
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
@@ -48,18 +49,7 @@ public class NotificationJob {
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
 
-    protected NotificationJob() {
-    }
-
-    public NotificationJob(UUID id, UUID eventId, UUID templateId, String tenantSlug, NotificationChannel channel,
-            NotificationJobStatus status) {
-        this.id = id;
-        this.eventId = eventId;
-        this.templateId = templateId;
-        this.tenantSlug = tenantSlug;
-        this.channel = channel;
-        this.status = status;
-        this.attempts = 0;
+    protected NotificationTemplate() {
     }
 
     @PrePersist
@@ -78,32 +68,32 @@ public class NotificationJob {
         return id;
     }
 
-    public UUID getEventId() {
-        return eventId;
-    }
-
-    public UUID getTemplateId() {
-        return templateId;
-    }
-
     public String getTenantSlug() {
         return tenantSlug;
+    }
+
+    public String getEventType() {
+        return eventType;
     }
 
     public NotificationChannel getChannel() {
         return channel;
     }
 
-    public NotificationJobStatus getStatus() {
-        return status;
+    public String getTemplateKey() {
+        return templateKey;
     }
 
-    public int getAttempts() {
-        return attempts;
+    public String getSubjectTemplate() {
+        return subjectTemplate;
     }
 
-    public Instant getNextAttemptAt() {
-        return nextAttemptAt;
+    public String getBodyTemplate() {
+        return bodyTemplate;
+    }
+
+    public boolean isEnabled() {
+        return enabled;
     }
 
     public Instant getCreatedAt() {
