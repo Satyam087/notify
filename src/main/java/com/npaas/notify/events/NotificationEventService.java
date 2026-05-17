@@ -4,6 +4,8 @@ import java.util.UUID;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -44,9 +46,23 @@ public class NotificationEventService {
         );
 
         NotificationEvent savedEvent = notificationEventRepository.save(event);
-        notificationEventPublisher.publish(savedEvent);
         savedEvent.markQueued();
+        publishAfterCommit(savedEvent);
         return toResponse(savedEvent, false);
+    }
+
+    private void publishAfterCommit(NotificationEvent event) {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            notificationEventPublisher.publish(event);
+            return;
+        }
+
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                notificationEventPublisher.publish(event);
+            }
+        });
     }
 
     private IngestEventResponse toResponse(NotificationEvent event, boolean duplicate) {
