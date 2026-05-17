@@ -32,6 +32,17 @@ notify:
   security:
     allowed-origins: ${NOTIFY_ALLOWED_ORIGINS:}
     max-event-body-bytes: ${NOTIFY_MAX_EVENT_BODY_BYTES:65536}
+  delivery:
+    enabled: ${NOTIFY_DELIVERY_ENABLED:true}
+    fixed-delay-ms: ${NOTIFY_DELIVERY_FIXED_DELAY_MS:5000}
+    batch-size: ${NOTIFY_DELIVERY_BATCH_SIZE:50}
+    max-attempts: ${NOTIFY_DELIVERY_MAX_ATTEMPTS:3}
+    retry-backoff-seconds: ${NOTIFY_DELIVERY_RETRY_BACKOFF_SECONDS:60}
+  email:
+    enabled: ${NOTIFY_EMAIL_ENABLED:false}
+    from: ${NOTIFY_EMAIL_FROM:connect@campuscritique.in}
+    from-name: ${NOTIFY_EMAIL_FROM_NAME:CampusCritique}
+    reply-to: ${NOTIFY_EMAIL_REPLY_TO:connect@campuscritique.in}
   rabbitmq:
     events:
       exchange: notify.events

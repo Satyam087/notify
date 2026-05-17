@@ -10,12 +10,15 @@ import org.springframework.stereotype.Service;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.npaas.notify.delivery.DeliveryException;
+import com.npaas.notify.delivery.DeliveryResult;
+import com.npaas.notify.delivery.NotificationDeliveryHandler;
 import com.npaas.notify.events.NotificationEvent;
 import com.npaas.notify.jobs.NotificationChannel;
 import com.npaas.notify.jobs.NotificationJob;
 
 @Service
-public class InAppNotificationDeliveryService {
+public class InAppNotificationDeliveryService implements NotificationDeliveryHandler {
 
     private final InAppNotificationRepository inAppNotificationRepository;
     private final ObjectMapper objectMapper;
@@ -27,14 +30,16 @@ public class InAppNotificationDeliveryService {
         this.objectMapper = objectMapper;
     }
 
-    public void deliverIfInApp(NotificationJob job, NotificationEvent event) {
-        if (job.getChannel() != NotificationChannel.IN_APP || inAppNotificationRepository.existsByJobId(job.getId())) {
-            return;
-        }
+    @Override
+    public NotificationChannel channel() {
+        return NotificationChannel.IN_APP;
+    }
 
+    @Override
+    public DeliveryResult deliver(NotificationJob job, NotificationEvent event) {
         Optional<String> recipientUserId = extractRecipientUserId(event.getRecipient());
         if (recipientUserId.isEmpty()) {
-            return;
+            throw new DeliveryException("Missing recipient.userId for in-app notification", false);
         }
 
         try {
@@ -48,10 +53,11 @@ public class InAppNotificationDeliveryService {
                 job.getRenderedBody()
             );
             inAppNotificationRepository.save(notification);
-            job.markSent();
         } catch (DataIntegrityViolationException ignored) {
             // The unique job constraint keeps in-app delivery idempotent if a message is redelivered.
         }
+
+        return DeliveryResult.delivered("in-app");
     }
 
     private Optional<String> extractRecipientUserId(String recipientJson) {

@@ -130,7 +130,24 @@ public class NotificationJob {
         return updatedAt;
     }
 
+    public void markProcessing() {
+        status = NotificationJobStatus.PROCESSING;
+    }
+
     public void markSent() {
         status = NotificationJobStatus.SENT;
+        nextAttemptAt = null;
+    }
+
+    public void scheduleRetry(Instant nextAttemptAt) {
+        attempts += 1;
+        status = NotificationJobStatus.PENDING;
+        this.nextAttemptAt = nextAttemptAt;
+    }
+
+    public void markFailed() {
+        attempts += 1;
+        status = NotificationJobStatus.FAILED;
+        nextAttemptAt = null;
     }
 }

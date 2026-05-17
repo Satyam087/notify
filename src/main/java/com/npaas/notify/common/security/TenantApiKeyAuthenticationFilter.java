@@ -33,7 +33,7 @@ public class TenantApiKeyAuthenticationFilter extends OncePerRequestFilter {
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
         String path = request.getRequestURI();
-        return !path.equals("/api/v1/events") && !path.startsWith("/api/v1/in-app-notifications");
+        return !path.startsWith("/api/v1/events") && !path.startsWith("/api/v1/in-app-notifications");
     }
 
     @Override

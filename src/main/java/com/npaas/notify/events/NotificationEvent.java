@@ -107,6 +107,18 @@ public class NotificationEvent {
         status = NotificationEventStatus.QUEUED;
     }
 
+    public void markProcessing() {
+        status = NotificationEventStatus.PROCESSING;
+    }
+
+    public void markCompleted() {
+        status = NotificationEventStatus.COMPLETED;
+    }
+
+    public void markFailed() {
+        status = NotificationEventStatus.FAILED;
+    }
+
     public Instant getCreatedAt() {
         return createdAt;
     }
