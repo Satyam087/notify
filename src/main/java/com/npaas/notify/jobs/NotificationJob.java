@@ -129,4 +129,8 @@ public class NotificationJob {
     public Instant getUpdatedAt() {
         return updatedAt;
     }
+
+    public void markSent() {
+        status = NotificationJobStatus.SENT;
+    }
 }

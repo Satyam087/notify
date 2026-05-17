@@ -10,6 +10,7 @@ import org.springframework.transaction.annotation.Transactional;
 import com.npaas.notify.events.NotificationEvent;
 import com.npaas.notify.events.NotificationEventRepository;
 import com.npaas.notify.events.QueuedNotificationEvent;
+import com.npaas.notify.inapp.InAppNotificationDeliveryService;
 import com.npaas.notify.rules.NotificationRule;
 import com.npaas.notify.rules.NotificationRuleRepository;
 import com.npaas.notify.templates.RenderedTemplate;
@@ -25,18 +26,21 @@ public class NotificationJobService {
     private final NotificationRuleRepository notificationRuleRepository;
     private final NotificationTemplateRepository notificationTemplateRepository;
     private final TemplateRenderer templateRenderer;
+    private final InAppNotificationDeliveryService inAppNotificationDeliveryService;
 
     public NotificationJobService(
             NotificationJobRepository notificationJobRepository,
             NotificationEventRepository notificationEventRepository,
             NotificationRuleRepository notificationRuleRepository,
             NotificationTemplateRepository notificationTemplateRepository,
-            TemplateRenderer templateRenderer) {
+            TemplateRenderer templateRenderer,
+            InAppNotificationDeliveryService inAppNotificationDeliveryService) {
         this.notificationJobRepository = notificationJobRepository;
         this.notificationEventRepository = notificationEventRepository;
         this.notificationRuleRepository = notificationRuleRepository;
         this.notificationTemplateRepository = notificationTemplateRepository;
         this.templateRenderer = templateRenderer;
+        this.inAppNotificationDeliveryService = inAppNotificationDeliveryService;
     }
 
     @Transactional
@@ -87,7 +91,8 @@ public class NotificationJobService {
                 renderedTemplate.subject(),
                 renderedTemplate.body()
             );
-            notificationJobRepository.save(job);
+            NotificationJob savedJob = notificationJobRepository.save(job);
+            inAppNotificationDeliveryService.deliverIfInApp(savedJob, event);
         } catch (DataIntegrityViolationException ignored) {
             // A redelivered or concurrent message may race this insert. The unique
             // event/channel constraint keeps the worker idempotent.
