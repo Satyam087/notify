@@ -36,6 +36,12 @@ public class NotificationJob {
     @Column(nullable = false, length = 32)
     private NotificationJobStatus status;
 
+    @Column(name = "rendered_subject", nullable = false, length = 240)
+    private String renderedSubject;
+
+    @Column(name = "rendered_body", nullable = false, columnDefinition = "text")
+    private String renderedBody;
+
     @Column(nullable = false)
     private int attempts;
 
@@ -52,13 +58,15 @@ public class NotificationJob {
     }
 
     public NotificationJob(UUID id, UUID eventId, UUID templateId, String tenantSlug, NotificationChannel channel,
-            NotificationJobStatus status) {
+            NotificationJobStatus status, String renderedSubject, String renderedBody) {
         this.id = id;
         this.eventId = eventId;
         this.templateId = templateId;
         this.tenantSlug = tenantSlug;
         this.channel = channel;
         this.status = status;
+        this.renderedSubject = renderedSubject;
+        this.renderedBody = renderedBody;
         this.attempts = 0;
     }
 
@@ -96,6 +104,14 @@ public class NotificationJob {
 
     public NotificationJobStatus getStatus() {
         return status;
+    }
+
+    public String getRenderedSubject() {
+        return renderedSubject;
+    }
+
+    public String getRenderedBody() {
+        return renderedBody;
     }
 
     public int getAttempts() {

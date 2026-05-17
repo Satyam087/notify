@@ -7,47 +7,65 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.npaas.notify.events.NotificationEvent;
+import com.npaas.notify.events.NotificationEventRepository;
 import com.npaas.notify.events.QueuedNotificationEvent;
 import com.npaas.notify.rules.NotificationRule;
 import com.npaas.notify.rules.NotificationRuleRepository;
+import com.npaas.notify.templates.RenderedTemplate;
 import com.npaas.notify.templates.NotificationTemplate;
 import com.npaas.notify.templates.NotificationTemplateRepository;
+import com.npaas.notify.templates.TemplateRenderer;
 
 @Service
 public class NotificationJobService {
 
     private final NotificationJobRepository notificationJobRepository;
+    private final NotificationEventRepository notificationEventRepository;
     private final NotificationRuleRepository notificationRuleRepository;
     private final NotificationTemplateRepository notificationTemplateRepository;
+    private final TemplateRenderer templateRenderer;
 
     public NotificationJobService(
             NotificationJobRepository notificationJobRepository,
+            NotificationEventRepository notificationEventRepository,
             NotificationRuleRepository notificationRuleRepository,
-            NotificationTemplateRepository notificationTemplateRepository) {
+            NotificationTemplateRepository notificationTemplateRepository,
+            TemplateRenderer templateRenderer) {
         this.notificationJobRepository = notificationJobRepository;
+        this.notificationEventRepository = notificationEventRepository;
         this.notificationRuleRepository = notificationRuleRepository;
         this.notificationTemplateRepository = notificationTemplateRepository;
+        this.templateRenderer = templateRenderer;
     }
 
     @Transactional
-    public void createInitialJobIfMissing(QueuedNotificationEvent event) {
+    public void createInitialJobIfMissing(QueuedNotificationEvent queuedEvent) {
+        NotificationEvent event = notificationEventRepository
+            .findById(queuedEvent.eventId())
+            .orElse(null);
+
+        if (event == null) {
+            return;
+        }
+
         List<NotificationRule> rules = notificationRuleRepository
-            .findByTenantSlugAndEventTypeAndEnabledTrue(event.tenantId(), event.eventType());
+            .findByTenantSlugAndEventTypeAndEnabledTrue(queuedEvent.tenantId(), queuedEvent.eventType());
 
         for (NotificationRule rule : rules) {
             createJobIfMissing(event, rule.getChannel());
         }
     }
 
-    private void createJobIfMissing(QueuedNotificationEvent event, NotificationChannel channel) {
-        if (notificationJobRepository.existsByEventIdAndChannel(event.eventId(), channel)) {
+    private void createJobIfMissing(NotificationEvent event, NotificationChannel channel) {
+        if (notificationJobRepository.existsByEventIdAndChannel(event.getId(), channel)) {
             return;
         }
 
         NotificationTemplate template = notificationTemplateRepository
             .findFirstByTenantSlugAndEventTypeAndChannelAndEnabledTrueOrderByCreatedAtDesc(
-                event.tenantId(),
-                event.eventType(),
+                event.getTenantSlug(),
+                event.getEventType(),
                 channel
             )
             .orElse(null);
@@ -56,14 +74,18 @@ public class NotificationJobService {
             return;
         }
 
+        RenderedTemplate renderedTemplate = templateRenderer.render(template, event.getPayload());
+
         try {
             NotificationJob job = new NotificationJob(
                 UUID.randomUUID(),
-                event.eventId(),
+                event.getId(),
                 template.getId(),
-                event.tenantId(),
+                event.getTenantSlug(),
                 channel,
-                NotificationJobStatus.PENDING
+                NotificationJobStatus.PENDING,
+                renderedTemplate.subject(),
+                renderedTemplate.body()
             );
             notificationJobRepository.save(job);
         } catch (DataIntegrityViolationException ignored) {
