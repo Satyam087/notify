@@ -1,0 +1,10 @@
+spring:
+  datasource:
+    url: jdbc:postgresql://127.0.0.1:55432/notify
+    username: notify
+    password: notify
+  rabbitmq:
+    host: 127.0.0.1
+    port: 5672
+    username: notify
+    password: notify
