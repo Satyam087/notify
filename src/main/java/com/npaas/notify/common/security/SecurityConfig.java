@@ -14,6 +14,7 @@ public class SecurityConfig {
             .csrf(csrf -> csrf.disable())
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers("/api/health-check", "/actuator/health", "/api/v1/events").permitAll()
+                .requestMatchers("/api/v1/in-app-notifications/**").permitAll()
                 .anyRequest().authenticated()
             )
             .httpBasic(httpBasic -> {

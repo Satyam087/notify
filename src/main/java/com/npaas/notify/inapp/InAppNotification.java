@@ -7,6 +7,7 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.PrePersist;
+import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
 
 @Entity
@@ -40,6 +41,9 @@ public class InAppNotification {
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 
+    @Column(name = "updated_at", nullable = false)
+    private Instant updatedAt;
+
     protected InAppNotification() {
     }
 
@@ -56,7 +60,14 @@ public class InAppNotification {
 
     @PrePersist
     void onCreate() {
-        createdAt = Instant.now();
+        Instant now = Instant.now();
+        createdAt = now;
+        updatedAt = now;
+    }
+
+    @PreUpdate
+    void onUpdate() {
+        updatedAt = Instant.now();
     }
 
     public UUID getId() {
@@ -93,5 +104,19 @@ public class InAppNotification {
 
     public Instant getCreatedAt() {
         return createdAt;
+    }
+
+    public Instant getUpdatedAt() {
+        return updatedAt;
+    }
+
+    public boolean isRead() {
+        return readAt != null;
+    }
+
+    public void markRead() {
+        if (readAt == null) {
+            readAt = Instant.now();
+        }
     }
 }
