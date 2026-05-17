@@ -4,7 +4,7 @@ import java.util.Map;
 import java.util.Optional;
 
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.mail.MailException;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.stereotype.Service;
@@ -25,23 +25,25 @@ import jakarta.mail.internet.MimeMessage;
 import org.springframework.mail.javamail.MimeMessageHelper;
 
 @Service
-@ConditionalOnProperty(prefix = "notify.email", name = "enabled", havingValue = "true")
 public class EmailNotificationDeliveryService implements NotificationDeliveryHandler {
 
-    private final JavaMailSender mailSender;
+    private final ObjectProvider<JavaMailSender> mailSenderProvider;
     private final ObjectMapper objectMapper;
+    private final boolean enabled;
     private final String fromEmail;
     private final String fromName;
     private final String replyToEmail;
 
     public EmailNotificationDeliveryService(
-            JavaMailSender mailSender,
+            ObjectProvider<JavaMailSender> mailSenderProvider,
             ObjectMapper objectMapper,
+            @Value("${notify.email.enabled:false}") boolean enabled,
             @Value("${notify.email.from}") String fromEmail,
             @Value("${notify.email.from-name:CampusCritique}") String fromName,
             @Value("${notify.email.reply-to:${notify.email.from}}") String replyToEmail) {
-        this.mailSender = mailSender;
+        this.mailSenderProvider = mailSenderProvider;
         this.objectMapper = objectMapper;
+        this.enabled = enabled;
         this.fromEmail = fromEmail;
         this.fromName = fromName;
         this.replyToEmail = replyToEmail;
@@ -54,6 +56,15 @@ public class EmailNotificationDeliveryService implements NotificationDeliveryHan
 
     @Override
     public DeliveryResult deliver(NotificationJob job, NotificationEvent event) {
+        if (!enabled) {
+            throw new DeliveryException("Email delivery is disabled", false);
+        }
+
+        JavaMailSender mailSender = mailSenderProvider.getIfAvailable();
+        if (mailSender == null) {
+            throw new DeliveryException("Email sender is not configured", true);
+        }
+
         String recipientEmail = extractRecipientEmail(event.getRecipient())
             .orElseThrow(() -> new DeliveryException("Missing recipient.email for email notification", false));
 

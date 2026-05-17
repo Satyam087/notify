@@ -58,7 +58,9 @@ connect@campuscritique.in
 
 Email sending remains off unless `NOTIFY_EMAIL_ENABLED=true` is set.
 
-Required production environment variables:
+Recommended provider for the first production setup is Brevo SMTP. Use a Brevo SMTP key as the password, not the Brevo account password.
+
+Required production environment variables for Brevo:
 
 ```bash
 NOTIFY_EMAIL_ENABLED=true
@@ -66,10 +68,10 @@ NOTIFY_EMAIL_FROM=connect@campuscritique.in
 NOTIFY_EMAIL_FROM_NAME=CampusCritique
 NOTIFY_EMAIL_REPLY_TO=connect@campuscritique.in
 
-SPRING_MAIL_HOST=smtp.example.com
+SPRING_MAIL_HOST=smtp-relay.brevo.com
 SPRING_MAIL_PORT=587
-SPRING_MAIL_USERNAME=connect@campuscritique.in
-SPRING_MAIL_PASSWORD=your-mailbox-or-app-password
+SPRING_MAIL_USERNAME=your-brevo-smtp-login
+SPRING_MAIL_PASSWORD=your-brevo-smtp-key
 SPRING_MAIL_SMTP_AUTH=true
 SPRING_MAIL_SMTP_STARTTLS_ENABLE=true
 ```

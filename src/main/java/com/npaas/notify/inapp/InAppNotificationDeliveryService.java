@@ -42,6 +42,10 @@ public class InAppNotificationDeliveryService implements NotificationDeliveryHan
             throw new DeliveryException("Missing recipient.userId for in-app notification", false);
         }
 
+        if (inAppNotificationRepository.existsByJobId(job.getId())) {
+            return DeliveryResult.delivered("in-app");
+        }
+
         try {
             InAppNotification notification = new InAppNotification(
                 UUID.randomUUID(),
