@@ -12,10 +12,15 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 public class NotificationEventService {
 
     private final NotificationEventRepository notificationEventRepository;
+    private final NotificationEventPublisher notificationEventPublisher;
     private final ObjectMapper objectMapper;
 
-    public NotificationEventService(NotificationEventRepository notificationEventRepository, ObjectMapper objectMapper) {
+    public NotificationEventService(
+            NotificationEventRepository notificationEventRepository,
+            NotificationEventPublisher notificationEventPublisher,
+            ObjectMapper objectMapper) {
         this.notificationEventRepository = notificationEventRepository;
+        this.notificationEventPublisher = notificationEventPublisher;
         this.objectMapper = objectMapper;
     }
 
@@ -39,6 +44,8 @@ public class NotificationEventService {
         );
 
         NotificationEvent savedEvent = notificationEventRepository.save(event);
+        notificationEventPublisher.publish(savedEvent);
+        savedEvent.markQueued();
         return toResponse(savedEvent, false);
     }
 

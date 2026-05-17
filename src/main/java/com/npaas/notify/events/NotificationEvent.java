@@ -103,6 +103,10 @@ public class NotificationEvent {
         return status;
     }
 
+    public void markQueued() {
+        status = NotificationEventStatus.QUEUED;
+    }
+
     public Instant getCreatedAt() {
         return createdAt;
     }
