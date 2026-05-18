@@ -65,6 +65,9 @@ notify:
     from: ${NOTIFY_EMAIL_FROM:connect@campuscritique.in}
     from-name: ${NOTIFY_EMAIL_FROM_NAME:CampusCritique}
     reply-to: ${NOTIFY_EMAIL_REPLY_TO:connect@campuscritique.in}
+    resend:
+      api-key: ${NOTIFY_EMAIL_RESEND_API_KEY:${RESEND_API_KEY:${SPRING_MAIL_PASSWORD:}}}
+      base-url: ${NOTIFY_EMAIL_RESEND_BASE_URL:https://api.resend.com}
   rabbitmq:
     events:
       exchange: notify.events
