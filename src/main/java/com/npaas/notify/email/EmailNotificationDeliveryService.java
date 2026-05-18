@@ -81,10 +81,24 @@ public class EmailNotificationDeliveryService implements NotificationDeliveryHan
         } catch (MessagingException exception) {
             throw new DeliveryException("Could not build email message", false, exception);
         } catch (MailException exception) {
-            throw new DeliveryException("SMTP delivery failed", true, exception);
+            throw new DeliveryException("SMTP delivery failed: " + rootMessage(exception), true, exception);
         } catch (java.io.UnsupportedEncodingException exception) {
             throw new DeliveryException("Invalid email sender name", false, exception);
         }
+    }
+
+    private String rootMessage(Throwable exception) {
+        Throwable cursor = exception;
+        while (cursor.getCause() != null) {
+            cursor = cursor.getCause();
+        }
+
+        String message = cursor.getMessage();
+        if (message == null || message.isBlank()) {
+            return exception.getClass().getSimpleName();
+        }
+
+        return message.length() > 500 ? message.substring(0, 500) : message;
     }
 
     private Optional<String> extractRecipientEmail(String recipientJson) {
