@@ -11,6 +11,7 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.server.ResponseStatusException;
 
+import com.npaas.notify.common.security.InvalidRequestCharsetException;
 import com.npaas.notify.templates.NotificationTemplateNotFoundException;
 
 import jakarta.servlet.http.HttpServletRequest;
@@ -63,6 +64,12 @@ public class GlobalExceptionHandler {
             HttpServletRequest request) {
         return ResponseEntity.badRequest()
             .body(ApiErrorResponse.of(400, "Bad Request", "Invalid request", request.getRequestURI()));
+    }
+
+    @ExceptionHandler(InvalidRequestCharsetException.class)
+    ResponseEntity<ApiErrorResponse> handleInvalidRequestCharset(HttpServletRequest request) {
+        return ResponseEntity.badRequest()
+            .body(ApiErrorResponse.of(400, "Bad Request", "Unsupported request charset", request.getRequestURI()));
     }
 
     @ExceptionHandler(DataIntegrityViolationException.class)
