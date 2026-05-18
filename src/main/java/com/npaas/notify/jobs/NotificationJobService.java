@@ -25,18 +25,21 @@ public class NotificationJobService {
     private final NotificationRuleRepository notificationRuleRepository;
     private final NotificationTemplateRepository notificationTemplateRepository;
     private final TemplateRenderer templateRenderer;
+    private final NotificationJobWriter notificationJobWriter;
 
     public NotificationJobService(
             NotificationJobRepository notificationJobRepository,
             NotificationEventRepository notificationEventRepository,
             NotificationRuleRepository notificationRuleRepository,
             NotificationTemplateRepository notificationTemplateRepository,
-            TemplateRenderer templateRenderer) {
+            TemplateRenderer templateRenderer,
+            NotificationJobWriter notificationJobWriter) {
         this.notificationJobRepository = notificationJobRepository;
         this.notificationEventRepository = notificationEventRepository;
         this.notificationRuleRepository = notificationRuleRepository;
         this.notificationTemplateRepository = notificationTemplateRepository;
         this.templateRenderer = templateRenderer;
+        this.notificationJobWriter = notificationJobWriter;
     }
 
     @Transactional
@@ -87,10 +90,12 @@ public class NotificationJobService {
                 renderedTemplate.subject(),
                 renderedTemplate.body()
             );
-            notificationJobRepository.save(job);
+            notificationJobWriter.saveNewJob(job);
         } catch (DataIntegrityViolationException ignored) {
             // A redelivered or concurrent message may race this insert. The unique
-            // event/channel constraint keeps the worker idempotent.
+            // event/channel constraint keeps the worker idempotent. The insert runs
+            // in its own transaction so this rollback cannot poison the whole
+            // message-consumer transaction.
         }
     }
 }

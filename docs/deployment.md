@@ -26,6 +26,29 @@ CLOUDAMQP_URL=amqps://user:password@host/vhost
 NOTIFY_ALLOWED_ORIGINS=https://your-client-domain.com
 ```
 
+## Reliability Environment Variables
+
+The defaults are safe for the first deployment. Override them only if the hosted
+environment needs different polling windows.
+
+```bash
+NOTIFY_DELIVERY_ENABLED=true
+NOTIFY_DELIVERY_FIXED_DELAY_MS=5000
+NOTIFY_DELIVERY_BATCH_SIZE=50
+NOTIFY_DELIVERY_MAX_ATTEMPTS=3
+NOTIFY_DELIVERY_RETRY_BACKOFF_SECONDS=60
+
+NOTIFY_EVENT_RECOVERY_ENABLED=true
+NOTIFY_EVENT_RECOVERY_FIXED_DELAY_MS=60000
+NOTIFY_EVENT_RECOVERY_STALE_AFTER_SECONDS=120
+NOTIFY_EVENT_RECOVERY_BATCH_SIZE=50
+```
+
+The event recovery scheduler republishes old `QUEUED` events if the database
+commit succeeded but RabbitMQ publishing failed. Delivery is claimed and
+finalized per job, so one failed job cannot roll back a whole batch of already
+sent emails.
+
 ## Email Environment Variables
 
 Keep email disabled until all SMTP values are configured.
@@ -89,6 +112,11 @@ Use these endpoints for hosting health checks:
 4. Store the raw API key in the CampusCritique hosting provider as a secret.
 5. Send one test `connect.requested` event.
 6. Confirm `/api/v1/events/status` shows `SENT` for expected channels.
+
+Start with one running app instance for the first client. The current worker
+uses per-job database locks and safe status checks, but horizontal worker
+scaling should still be validated with load tests before adding multiple
+instances.
 
 ## Rollback
 

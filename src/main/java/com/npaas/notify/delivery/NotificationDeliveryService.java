@@ -1,19 +1,15 @@
 package com.npaas.notify.delivery;
 
-import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
-import com.npaas.notify.events.NotificationEvent;
-import com.npaas.notify.events.NotificationEventRepository;
 import com.npaas.notify.jobs.NotificationChannel;
 import com.npaas.notify.jobs.NotificationJob;
 import com.npaas.notify.jobs.NotificationJobRepository;
@@ -23,38 +19,30 @@ import com.npaas.notify.jobs.NotificationJobStatus;
 public class NotificationDeliveryService {
 
     private final NotificationJobRepository notificationJobRepository;
-    private final NotificationEventRepository notificationEventRepository;
-    private final NotificationDeliveryAttemptRepository deliveryAttemptRepository;
+    private final NotificationDeliveryTransactionService transactionService;
     private final Map<NotificationChannel, NotificationDeliveryHandler> handlers;
-    private final int maxAttempts;
-    private final Duration retryBackoff;
 
     public NotificationDeliveryService(
             NotificationJobRepository notificationJobRepository,
-            NotificationEventRepository notificationEventRepository,
-            NotificationDeliveryAttemptRepository deliveryAttemptRepository,
-            List<NotificationDeliveryHandler> deliveryHandlers,
-            @Value("${notify.delivery.max-attempts:3}") int maxAttempts,
-            @Value("${notify.delivery.retry-backoff-seconds:60}") long retryBackoffSeconds) {
+            NotificationDeliveryTransactionService transactionService,
+            List<NotificationDeliveryHandler> deliveryHandlers) {
         this.notificationJobRepository = notificationJobRepository;
-        this.notificationEventRepository = notificationEventRepository;
-        this.deliveryAttemptRepository = deliveryAttemptRepository;
+        this.transactionService = transactionService;
         this.handlers = toHandlerMap(deliveryHandlers);
-        this.maxAttempts = maxAttempts;
-        this.retryBackoff = Duration.ofSeconds(retryBackoffSeconds);
     }
 
-    @Transactional
     public int deliverDueJobs(int batchSize) {
-        List<NotificationJob> jobs = findDueJobs(batchSize);
-        for (NotificationJob job : jobs) {
-            deliver(job);
+        List<UUID> jobIds = findDueJobIds(batchSize);
+        int claimedJobs = 0;
+
+        for (UUID jobId : jobIds) {
+            claimedJobs += deliver(jobId);
         }
 
-        return jobs.size();
+        return claimedJobs;
     }
 
-    private List<NotificationJob> findDueJobs(int batchSize) {
+    private List<UUID> findDueJobIds(int batchSize) {
         List<NotificationJob> jobs = new ArrayList<>();
         jobs.addAll(notificationJobRepository.findByStatusAndNextAttemptAtIsNullOrderByCreatedAtAsc(
             NotificationJobStatus.PENDING,
@@ -70,107 +58,46 @@ public class NotificationDeliveryService {
             ));
         }
 
-        return jobs;
+        return jobs.stream().map(NotificationJob::getId).toList();
     }
 
-    private void deliver(NotificationJob job) {
-        NotificationEvent event = notificationEventRepository.findById(job.getEventId()).orElse(null);
-        if (event == null) {
-            markFailed(job, "Event no longer exists", false);
-            return;
+    private int deliver(UUID jobId) {
+        ClaimedNotificationJob claimedJob = transactionService.claim(jobId).orElse(null);
+        if (claimedJob == null) {
+            return 0;
         }
 
-        NotificationDeliveryHandler handler = handlers.get(job.getChannel());
+        NotificationDeliveryHandler handler = handlers.get(claimedJob.job().getChannel());
         if (handler == null) {
-            int attemptNumber = job.getAttempts() + 1;
-            deliveryAttemptRepository.save(NotificationDeliveryAttempt.failed(
-                job.getId(),
-                job.getTenantSlug(),
-                job.getChannel(),
-                attemptNumber,
+            transactionService.recordFailure(
+                claimedJob,
                 "none",
-                "No delivery handler configured for channel " + job.getChannel()
-            ));
-            markFailed(job, "No delivery handler configured for channel " + job.getChannel(), false);
-            updateEventStatus(event);
-            return;
+                "No delivery handler configured for channel " + claimedJob.job().getChannel(),
+                false
+            );
+            return 1;
         }
-
-        int attemptNumber = job.getAttempts() + 1;
-        job.markProcessing();
-        event.markProcessing();
 
         try {
-            DeliveryResult result = handler.deliver(job, event);
-            deliveryAttemptRepository.save(NotificationDeliveryAttempt.success(
-                job.getId(),
-                job.getTenantSlug(),
-                job.getChannel(),
-                attemptNumber,
-                result.provider(),
-                result.providerMessageId()
-            ));
-            job.markSent();
+            DeliveryResult result = handler.deliver(claimedJob.job(), claimedJob.event());
+            transactionService.recordSuccess(claimedJob, result);
         } catch (DeliveryException exception) {
-            deliveryAttemptRepository.save(NotificationDeliveryAttempt.failed(
-                job.getId(),
-                job.getTenantSlug(),
-                job.getChannel(),
-                attemptNumber,
+            transactionService.recordFailure(
+                claimedJob,
                 providerName(handler),
-                exception.getMessage()
-            ));
-            markFailed(job, exception.getMessage(), exception.isRetryable());
+                exception.getMessage(),
+                exception.isRetryable()
+            );
         } catch (RuntimeException exception) {
-            deliveryAttemptRepository.save(NotificationDeliveryAttempt.failed(
-                job.getId(),
-                job.getTenantSlug(),
-                job.getChannel(),
-                attemptNumber,
+            transactionService.recordFailure(
+                claimedJob,
                 providerName(handler),
-                "Unexpected delivery error"
-            ));
-            markFailed(job, "Unexpected delivery error", true);
+                "Unexpected delivery error",
+                true
+            );
         }
 
-        updateEventStatus(event);
-    }
-
-    private void markFailed(NotificationJob job, String reason, boolean retryable) {
-        if (retryable && job.getAttempts() + 1 < maxAttempts) {
-            job.scheduleRetry(Instant.now().plus(retryBackoff));
-            return;
-        }
-
-        job.markFailed();
-    }
-
-    private void updateEventStatus(NotificationEvent event) {
-        long totalJobs = notificationJobRepository.countByEventId(event.getId());
-        if (totalJobs == 0) {
-            event.markCompleted();
-            return;
-        }
-
-        long pendingOrProcessing = notificationJobRepository.countByEventIdAndStatusIn(
-            event.getId(),
-            List.of(NotificationJobStatus.PENDING, NotificationJobStatus.PROCESSING)
-        );
-        if (pendingOrProcessing > 0) {
-            event.markProcessing();
-            return;
-        }
-
-        long failed = notificationJobRepository.countByEventIdAndStatusIn(
-            event.getId(),
-            List.of(NotificationJobStatus.FAILED)
-        );
-        if (failed > 0) {
-            event.markFailed();
-            return;
-        }
-
-        event.markCompleted();
+        return 1;
     }
 
     private String providerName(NotificationDeliveryHandler handler) {

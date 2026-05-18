@@ -32,11 +32,11 @@ public class TenantApiKeyAuthenticationFilter extends OncePerRequestFilter {
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
-        String path = request.getRequestURI();
-        return !path.startsWith("/api/v1/events")
-            && !path.startsWith("/api/v1/in-app-notifications")
-            && !path.startsWith("/api/v1/jobs")
-            && !path.startsWith("/api/v1/templates");
+        String path = normalizePath(request);
+        return !matchesProtectedPath(path, "/api/v1/events")
+            && !matchesProtectedPath(path, "/api/v1/in-app-notifications")
+            && !matchesProtectedPath(path, "/api/v1/jobs")
+            && !matchesProtectedPath(path, "/api/v1/templates");
     }
 
     @Override
@@ -79,5 +79,24 @@ public class TenantApiKeyAuthenticationFilter extends OncePerRequestFilter {
         response.getWriter().write("""
             {"timestamp":"%s","status":401,"error":"Unauthorized","message":"%s"}
             """.formatted(Instant.now(), message));
+    }
+
+    private String normalizePath(HttpServletRequest request) {
+        String servletPath = request.getServletPath();
+        String path = servletPath == null || servletPath.isBlank() ? request.getRequestURI() : servletPath;
+        int matrixParameterIndex = path.indexOf(';');
+        if (matrixParameterIndex >= 0) {
+            path = path.substring(0, matrixParameterIndex);
+        }
+
+        if (path.length() > 1 && path.endsWith("/")) {
+            return path.substring(0, path.length() - 1);
+        }
+
+        return path;
+    }
+
+    private boolean matchesProtectedPath(String path, String protectedPath) {
+        return path.equals(protectedPath) || path.startsWith(protectedPath + "/");
     }
 }

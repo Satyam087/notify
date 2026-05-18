@@ -54,6 +54,12 @@ notify:
     batch-size: ${NOTIFY_DELIVERY_BATCH_SIZE:50}
     max-attempts: ${NOTIFY_DELIVERY_MAX_ATTEMPTS:3}
     retry-backoff-seconds: ${NOTIFY_DELIVERY_RETRY_BACKOFF_SECONDS:60}
+  events:
+    recovery:
+      enabled: ${NOTIFY_EVENT_RECOVERY_ENABLED:true}
+      fixed-delay-ms: ${NOTIFY_EVENT_RECOVERY_FIXED_DELAY_MS:60000}
+      stale-after-seconds: ${NOTIFY_EVENT_RECOVERY_STALE_AFTER_SECONDS:120}
+      batch-size: ${NOTIFY_EVENT_RECOVERY_BATCH_SIZE:50}
   email:
     enabled: ${NOTIFY_EMAIL_ENABLED:false}
     from: ${NOTIFY_EMAIL_FROM:connect@campuscritique.in}

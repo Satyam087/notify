@@ -7,12 +7,21 @@ import java.util.UUID;
 
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+
+import jakarta.persistence.LockModeType;
 
 public interface NotificationJobRepository extends JpaRepository<NotificationJob, UUID> {
 
     boolean existsByEventIdAndChannel(UUID eventId, NotificationChannel channel);
 
     List<NotificationJob> findByEventIdOrderByCreatedAtAsc(UUID eventId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select job from NotificationJob job where job.id = :id")
+    java.util.Optional<NotificationJob> findByIdForUpdate(@Param("id") UUID id);
 
     List<NotificationJob> findByTenantSlugAndStatusOrderByUpdatedAtDesc(
             String tenantSlug,

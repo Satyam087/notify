@@ -1,6 +1,7 @@
 package com.npaas.notify.jobs;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -16,6 +17,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -44,6 +46,9 @@ class NotificationJobServiceTest {
     @Mock
     private NotificationTemplateRepository notificationTemplateRepository;
 
+    @Mock
+    private NotificationJobWriter notificationJobWriter;
+
     private NotificationJobService notificationJobService;
 
     @BeforeEach
@@ -53,7 +58,8 @@ class NotificationJobServiceTest {
             notificationEventRepository,
             notificationRuleRepository,
             notificationTemplateRepository,
-            new TemplateRenderer(new ObjectMapper())
+            new TemplateRenderer(new ObjectMapper()),
+            notificationJobWriter
         );
     }
 
@@ -103,7 +109,7 @@ class NotificationJobServiceTest {
         );
 
         ArgumentCaptor<NotificationJob> jobCaptor = ArgumentCaptor.forClass(NotificationJob.class);
-        verify(notificationJobRepository).save(jobCaptor.capture());
+        verify(notificationJobWriter).saveNewJob(jobCaptor.capture());
 
         NotificationJob job = jobCaptor.getValue();
         assertThat(job.getEventId()).isEqualTo(eventId);
@@ -145,7 +151,51 @@ class NotificationJobServiceTest {
                 "connect.requested",
                 NotificationChannel.IN_APP
             );
-        verify(notificationJobRepository, never()).save(org.mockito.ArgumentMatchers.any());
+        verify(notificationJobWriter, never()).saveNewJob(org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    void swallowsDuplicateJobInsertRace() {
+        UUID eventId = UUID.randomUUID();
+        UUID templateId = UUID.randomUUID();
+        NotificationEvent event = new NotificationEvent(
+            eventId,
+            "campuscritique",
+            "connect.requested",
+            "connect-001",
+            "{}",
+            "{}",
+            NotificationEventStatus.QUEUED
+        );
+        NotificationTemplate template = new NotificationTemplate(
+            templateId,
+            "campuscritique",
+            "connect.requested",
+            NotificationChannel.IN_APP,
+            "connect_in_app",
+            "New connect",
+            "Open request.",
+            true
+        );
+
+        when(notificationEventRepository.findById(eventId)).thenReturn(Optional.of(event));
+        when(notificationRuleRepository.findByTenantSlugAndEventTypeAndEnabledTrue(
+            "campuscritique",
+            "connect.requested"
+        )).thenReturn(List.of(rule(NotificationChannel.IN_APP)));
+        when(notificationJobRepository.existsByEventIdAndChannel(eventId, NotificationChannel.IN_APP)).thenReturn(false);
+        when(notificationTemplateRepository.findFirstByTenantSlugAndEventTypeAndChannelAndEnabledTrueOrderByCreatedAtDesc(
+            "campuscritique",
+            "connect.requested",
+            NotificationChannel.IN_APP
+        )).thenReturn(Optional.of(template));
+        org.mockito.Mockito.doThrow(new DataIntegrityViolationException("duplicate"))
+            .when(notificationJobWriter)
+            .saveNewJob(org.mockito.ArgumentMatchers.any(NotificationJob.class));
+
+        assertThatCode(() -> notificationJobService.createInitialJobIfMissing(
+            new QueuedNotificationEvent(eventId, "campuscritique", "connect.requested", Instant.now())
+        )).doesNotThrowAnyException();
     }
 
     private NotificationRule rule(NotificationChannel channel) {
