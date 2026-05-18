@@ -9,6 +9,9 @@ import java.nio.charset.Charset;
 import java.nio.charset.IllegalCharsetNameException;
 import java.nio.charset.StandardCharsets;
 import java.nio.charset.UnsupportedCharsetException;
+import java.util.Collections;
+import java.util.Enumeration;
+import java.util.List;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
@@ -30,6 +33,7 @@ import jakarta.servlet.http.HttpServletResponse;
 public class RequestSizeLimitFilter extends OncePerRequestFilter {
 
     private static final String EVENTS_PATH = "/api/v1/events";
+    private static final String CONTENT_LENGTH_HEADER = "Content-Length";
     private static final long MAX_CONFIGURABLE_EVENT_BODY_BYTES = 1_048_576;
 
     private final long maxEventBodyBytes;
@@ -153,6 +157,16 @@ public class RequestSizeLimitFilter extends OncePerRequestFilter {
                 public int read() {
                     return input.read();
                 }
+
+                @Override
+                public int read(byte[] bytes) {
+                    return input.read(bytes, 0, bytes.length);
+                }
+
+                @Override
+                public int read(byte[] bytes, int offset, int length) {
+                    return input.read(bytes, offset, length);
+                }
             };
         }
 
@@ -183,6 +197,46 @@ public class RequestSizeLimitFilter extends OncePerRequestFilter {
         @Override
         public long getContentLengthLong() {
             return body.length;
+        }
+
+        @Override
+        public String getHeader(String name) {
+            if (CONTENT_LENGTH_HEADER.equalsIgnoreCase(name)) {
+                return String.valueOf(body.length);
+            }
+            return super.getHeader(name);
+        }
+
+        @Override
+        public Enumeration<String> getHeaders(String name) {
+            if (CONTENT_LENGTH_HEADER.equalsIgnoreCase(name)) {
+                return Collections.enumeration(List.of(String.valueOf(body.length)));
+            }
+            return super.getHeaders(name);
+        }
+
+        @Override
+        public Enumeration<String> getHeaderNames() {
+            Enumeration<String> headerNames = super.getHeaderNames();
+            if (headerNames == null) {
+                return Collections.enumeration(List.of(CONTENT_LENGTH_HEADER));
+            }
+
+            List<String> names = Collections.list(headerNames);
+            boolean hasContentLength = names.stream()
+                .anyMatch(CONTENT_LENGTH_HEADER::equalsIgnoreCase);
+            if (!hasContentLength) {
+                names.add(CONTENT_LENGTH_HEADER);
+            }
+            return Collections.enumeration(names);
+        }
+
+        @Override
+        public int getIntHeader(String name) {
+            if (CONTENT_LENGTH_HEADER.equalsIgnoreCase(name)) {
+                return body.length;
+            }
+            return super.getIntHeader(name);
         }
     }
 }

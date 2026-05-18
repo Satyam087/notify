@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.util.Collections;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockFilterChain;
@@ -17,6 +18,7 @@ import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
+import jakarta.servlet.http.HttpServletRequest;
 
 class RequestSizeLimitFilterTest {
 
@@ -128,6 +130,47 @@ class RequestSizeLimitFilterTest {
         FilterChain chain = (servletRequest, servletResponse) -> assertThatCode(
             () -> servletRequest.getReader().readLine()
         ).doesNotThrowAnyException();
+
+        filter.doFilter(request, response, chain);
+
+        assertThat(response.getStatus()).isEqualTo(200);
+    }
+
+    @Test
+    void cachedRequestSupportsBulkReads() throws ServletException, IOException {
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/v1/events");
+        request.setServletPath("/api/v1/events");
+        request.setContent("abcdef".getBytes(StandardCharsets.UTF_8));
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        byte[] buffer = new byte[6];
+        FilterChain chain = (servletRequest, servletResponse) -> {
+            int bytesRead = servletRequest.getInputStream().read(buffer, 0, buffer.length);
+            assertThat(bytesRead).isEqualTo(6);
+            assertThat(new String(buffer, StandardCharsets.UTF_8)).isEqualTo("abcdef");
+        };
+
+        filter.doFilter(request, response, chain);
+
+        assertThat(response.getStatus()).isEqualTo(200);
+    }
+
+    @Test
+    void cachedRequestExposesCachedContentLengthHeaders() throws ServletException, IOException {
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/v1/events");
+        request.setServletPath("/api/v1/events");
+        request.setContent("{}".getBytes(StandardCharsets.UTF_8));
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        FilterChain chain = (servletRequest, servletResponse) -> {
+            HttpServletRequest cachedRequest = (HttpServletRequest) servletRequest;
+
+            assertThat(cachedRequest.getContentLength()).isEqualTo(2);
+            assertThat(cachedRequest.getContentLengthLong()).isEqualTo(2);
+            assertThat(cachedRequest.getHeader("Content-Length")).isEqualTo("2");
+            assertThat(cachedRequest.getIntHeader("Content-Length")).isEqualTo(2);
+            assertThat(Collections.list(cachedRequest.getHeaders("Content-Length"))).containsExactly("2");
+            assertThat(Collections.list(cachedRequest.getHeaderNames()))
+                .anySatisfy(headerName -> assertThat(headerName).isEqualToIgnoringCase("Content-Length"));
+        };
 
         filter.doFilter(request, response, chain);
 
