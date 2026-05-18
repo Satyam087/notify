@@ -26,6 +26,7 @@ spring:
             enable: ${SPRING_MAIL_SMTP_STARTTLS_ENABLE:true}
 
 server:
+  port: ${PORT:8080}
   error:
     include-binding-errors: never
     include-exception: false
@@ -34,6 +35,10 @@ server:
   max-http-request-header-size: 8KB
 
 management:
+  endpoint:
+    health:
+      probes:
+        enabled: true
   endpoints:
     web:
       exposure:

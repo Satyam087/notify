@@ -2,6 +2,10 @@
 
 Event-driven notification service for multiple products and tenants.
 
+## Deployment
+
+See `docs/deployment.md` for Docker deployment, production environment variables, health checks, and rollback notes.
+
 ## Local API Key Creation
 
 Use the internal CLI command to create tenant API keys. The raw key is printed once and only its SHA-256 hash is stored in Postgres.
