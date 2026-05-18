@@ -133,3 +133,14 @@ curl "http://localhost:8080/api/v1/events/status?tenantId=campuscritique&idempot
 ```
 
 The response includes the event status, generated delivery jobs, and delivery attempts for each channel.
+
+## Failed Job Visibility
+
+Clients can inspect recent failed jobs for their tenant with the same API key:
+
+```bash
+curl "http://localhost:8080/api/v1/jobs/failed?tenantId=campuscritique&limit=25" \
+  -H "X-Notify-Api-Key: notify_live_..."
+```
+
+The response includes the failed job id, event id, channel, rendered subject, latest provider, and latest error message.

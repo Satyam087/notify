@@ -14,6 +14,11 @@ public interface NotificationJobRepository extends JpaRepository<NotificationJob
 
     List<NotificationJob> findByEventIdOrderByCreatedAtAsc(UUID eventId);
 
+    List<NotificationJob> findByTenantSlugAndStatusOrderByUpdatedAtDesc(
+            String tenantSlug,
+            NotificationJobStatus status,
+            Pageable pageable);
+
     List<NotificationJob> findByStatusAndNextAttemptAtLessThanEqualOrderByCreatedAtAsc(
             NotificationJobStatus status,
             Instant nextAttemptAt,

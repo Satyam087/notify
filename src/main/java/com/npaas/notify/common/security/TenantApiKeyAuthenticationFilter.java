@@ -35,6 +35,7 @@ public class TenantApiKeyAuthenticationFilter extends OncePerRequestFilter {
         String path = request.getRequestURI();
         return !path.startsWith("/api/v1/events")
             && !path.startsWith("/api/v1/in-app-notifications")
+            && !path.startsWith("/api/v1/jobs")
             && !path.startsWith("/api/v1/templates");
     }
 
