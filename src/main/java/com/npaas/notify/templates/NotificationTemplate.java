@@ -52,6 +52,18 @@ public class NotificationTemplate {
     protected NotificationTemplate() {
     }
 
+    public NotificationTemplate(UUID id, String tenantSlug, String eventType, NotificationChannel channel,
+            String templateKey, String subjectTemplate, String bodyTemplate, boolean enabled) {
+        this.id = id;
+        this.tenantSlug = tenantSlug;
+        this.eventType = eventType;
+        this.channel = channel;
+        this.templateKey = templateKey;
+        this.subjectTemplate = subjectTemplate;
+        this.bodyTemplate = bodyTemplate;
+        this.enabled = enabled;
+    }
+
     @PrePersist
     void onCreate() {
         Instant now = Instant.now();
@@ -102,5 +114,14 @@ public class NotificationTemplate {
 
     public Instant getUpdatedAt() {
         return updatedAt;
+    }
+
+    public void update(String eventType, NotificationChannel channel, String subjectTemplate, String bodyTemplate,
+            boolean enabled) {
+        this.eventType = eventType;
+        this.channel = channel;
+        this.subjectTemplate = subjectTemplate;
+        this.bodyTemplate = bodyTemplate;
+        this.enabled = enabled;
     }
 }

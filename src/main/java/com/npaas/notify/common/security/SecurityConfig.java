@@ -28,7 +28,13 @@ public class SecurityConfig {
             .csrf(csrf -> csrf.disable())
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers("/api/health-check", "/actuator/health", "/error").permitAll()
-                .requestMatchers("/api/v1/events", "/api/v1/events/**", "/api/v1/in-app-notifications/**").authenticated()
+                .requestMatchers(
+                    "/api/v1/events",
+                    "/api/v1/events/**",
+                    "/api/v1/in-app-notifications/**",
+                    "/api/v1/templates",
+                    "/api/v1/templates/**"
+                ).authenticated()
                 .anyRequest().denyAll()
             )
             .addFilterBefore(apiKeyFilter, UsernamePasswordAuthenticationFilter.class)
@@ -48,7 +54,7 @@ public class SecurityConfig {
             @Value("${notify.security.allowed-origins:}") String allowedOriginsProperty) {
         CorsConfiguration configuration = new CorsConfiguration();
         configuration.setAllowedOrigins(parseCsv(allowedOriginsProperty));
-        configuration.setAllowedMethods(List.of("GET", "POST", "PATCH", "OPTIONS"));
+        configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "OPTIONS"));
         configuration.setAllowedHeaders(List.of(HttpHeaders.CONTENT_TYPE, "X-Notify-Api-Key"));
         configuration.setMaxAge(3600L);
 

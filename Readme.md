@@ -58,9 +58,9 @@ connect@campuscritique.in
 
 Email sending remains off unless `NOTIFY_EMAIL_ENABLED=true` is set.
 
-Recommended provider for the first production setup is Brevo SMTP. Use a Brevo SMTP key as the password, not the Brevo account password.
+Recommended provider for the first production setup is Resend SMTP. Use a Resend API key as the SMTP password.
 
-Required production environment variables for Brevo:
+Required production environment variables for Resend:
 
 ```bash
 NOTIFY_EMAIL_ENABLED=true
@@ -68,15 +68,56 @@ NOTIFY_EMAIL_FROM=connect@campuscritique.in
 NOTIFY_EMAIL_FROM_NAME=CampusCritique
 NOTIFY_EMAIL_REPLY_TO=connect@campuscritique.in
 
-SPRING_MAIL_HOST=smtp-relay.brevo.com
+SPRING_MAIL_HOST=smtp.resend.com
 SPRING_MAIL_PORT=587
-SPRING_MAIL_USERNAME=your-brevo-smtp-login
-SPRING_MAIL_PASSWORD=your-brevo-smtp-key
+SPRING_MAIL_USERNAME=resend
+SPRING_MAIL_PASSWORD=your-resend-api-key
 SPRING_MAIL_SMTP_AUTH=true
 SPRING_MAIL_SMTP_STARTTLS_ENABLE=true
 ```
 
-Until these SMTP variables are configured, keep `NOTIFY_EMAIL_ENABLED=false` so only non-email channels such as in-app delivery are processed.
+Until these SMTP variables are configured, keep `NOTIFY_EMAIL_ENABLED=false` so only non-email channels such as in-app delivery are processed. If email is enabled without the required SMTP settings, Notify fails startup with a clear configuration error.
+
+## Template Management
+
+Templates are stored in Postgres per tenant. Delivery jobs render the matching enabled template for the event type and channel before workers send the notification.
+
+List templates:
+
+```bash
+curl "http://localhost:8080/api/v1/templates?tenantId=campuscritique" \
+  -H "X-Notify-Api-Key: notify_live_..."
+```
+
+Create or update a template:
+
+```bash
+curl -X PUT "http://localhost:8080/api/v1/templates/campuscritique_connect_requested_email_v1" \
+  -H "Content-Type: application/json" \
+  -H "X-Notify-Api-Key: notify_live_..." \
+  -d '{
+    "tenantId": "campuscritique",
+    "eventType": "connect.requested",
+    "channel": "EMAIL",
+    "subjectTemplate": "New connect request for {{collegeName}}",
+    "bodyTemplate": "A student requested a connect for {{collegeName}}.",
+    "enabled": true
+  }'
+```
+
+Preview rendering:
+
+```bash
+curl -X POST "http://localhost:8080/api/v1/templates/campuscritique_connect_requested_email_v1/render-test" \
+  -H "Content-Type: application/json" \
+  -H "X-Notify-Api-Key: notify_live_..." \
+  -d '{
+    "tenantId": "campuscritique",
+    "payload": {
+      "collegeName": "Newton ADYPU"
+    }
+  }'
+```
 
 ## Event Status Lookup
 

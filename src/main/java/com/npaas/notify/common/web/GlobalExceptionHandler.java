@@ -11,6 +11,8 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.server.ResponseStatusException;
 
+import com.npaas.notify.templates.NotificationTemplateNotFoundException;
+
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.ConstraintViolationException;
@@ -67,6 +69,12 @@ public class GlobalExceptionHandler {
     ResponseEntity<ApiErrorResponse> handleDataIntegrityViolation(HttpServletRequest request) {
         return ResponseEntity.status(HttpStatus.CONFLICT)
             .body(ApiErrorResponse.of(409, "Conflict", "Request conflicts with existing data", request.getRequestURI()));
+    }
+
+    @ExceptionHandler(NotificationTemplateNotFoundException.class)
+    ResponseEntity<ApiErrorResponse> handleNotificationTemplateNotFound(HttpServletRequest request) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+            .body(ApiErrorResponse.of(404, "Not Found", "Notification template was not found", request.getRequestURI()));
     }
 
     @ExceptionHandler(Exception.class)
