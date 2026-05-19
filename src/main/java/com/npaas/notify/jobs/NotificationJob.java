@@ -132,6 +132,7 @@ public class NotificationJob {
 
     public void markProcessing() {
         status = NotificationJobStatus.PROCESSING;
+        nextAttemptAt = null;
     }
 
     public void markSent() {

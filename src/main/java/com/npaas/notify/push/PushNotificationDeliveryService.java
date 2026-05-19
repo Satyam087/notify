@@ -5,9 +5,13 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.apache.http.HttpResponse;
 import org.springframework.beans.factory.annotation.Value;
@@ -26,9 +30,12 @@ import com.npaas.notify.jobs.NotificationJob;
 import nl.martijndwars.webpush.Notification;
 import nl.martijndwars.webpush.PushService;
 import nl.martijndwars.webpush.Subscription;
+import jakarta.annotation.PreDestroy;
 
 @Service
 public class PushNotificationDeliveryService implements NotificationDeliveryHandler {
+
+    private static final AtomicInteger PUSH_THREAD_COUNTER = new AtomicInteger();
 
     private final PushSubscriptionService pushSubscriptionService;
     private final ObjectMapper objectMapper;
@@ -37,6 +44,7 @@ public class PushNotificationDeliveryService implements NotificationDeliveryHand
     private final String vapidPrivateKey;
     private final String vapidSubject;
     private final Duration deliveryTimeout;
+    private final ExecutorService deliveryExecutor;
 
     public PushNotificationDeliveryService(
             PushSubscriptionService pushSubscriptionService,
@@ -53,6 +61,17 @@ public class PushNotificationDeliveryService implements NotificationDeliveryHand
         this.vapidPrivateKey = vapidPrivateKey;
         this.vapidSubject = vapidSubject;
         this.deliveryTimeout = Duration.ofSeconds(Math.max(1, deliveryTimeoutSeconds));
+        this.deliveryExecutor = Executors.newFixedThreadPool(4, task -> {
+            Thread thread = new Thread(task);
+            thread.setName("push-delivery-" + PUSH_THREAD_COUNTER.incrementAndGet());
+            thread.setDaemon(true);
+            return thread;
+        });
+    }
+
+    @PreDestroy
+    void shutdown() {
+        deliveryExecutor.shutdownNow();
     }
 
     @Override
@@ -105,7 +124,8 @@ public class PushNotificationDeliveryService implements NotificationDeliveryHand
                 savedSubscription.getEndpoint(),
                 new Subscription.Keys(savedSubscription.getP256dhKey(), savedSubscription.getAuthKey())
             );
-            delivery = pushService.sendAsync(new Notification(subscription, payload));
+            Notification notification = new Notification(subscription, payload);
+            delivery = deliveryExecutor.submit(() -> pushService.send(notification));
             HttpResponse response = delivery.get(deliveryTimeout.toMillis(), TimeUnit.MILLISECONDS);
             int statusCode = response.getStatusLine().getStatusCode();
 
@@ -139,6 +159,14 @@ public class PushNotificationDeliveryService implements NotificationDeliveryHand
             throw new DeliveryException("Push delivery interrupted", true);
         } catch (DeliveryException exception) {
             throw exception;
+        } catch (ExecutionException exception) {
+            Throwable cause = exception.getCause() == null ? exception : exception.getCause();
+            pushSubscriptionService.recordFailure(
+                savedSubscription.getId(),
+                "Push delivery failed: " + safeMessage(cause),
+                false
+            );
+            throw new DeliveryException("Push delivery failed: " + safeMessage(cause), true);
         } catch (Exception exception) {
             pushSubscriptionService.recordFailure(
                 savedSubscription.getId(),
@@ -197,10 +225,10 @@ public class PushNotificationDeliveryService implements NotificationDeliveryHand
         return normalized.substring(0, Math.min(normalized.length(), maxLength)).trim();
     }
 
-    private String safeMessage(Exception exception) {
-        String message = exception.getMessage();
+    private String safeMessage(Throwable throwable) {
+        String message = throwable.getMessage();
         if (message == null || message.isBlank()) {
-            return exception.getClass().getSimpleName();
+            return throwable.getClass().getSimpleName();
         }
 
         return message.length() <= 240 ? message : message.substring(0, 240);
