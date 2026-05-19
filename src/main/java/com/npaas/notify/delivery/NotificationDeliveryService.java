@@ -6,7 +6,15 @@ import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicInteger;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 
@@ -15,20 +23,39 @@ import com.npaas.notify.jobs.NotificationJob;
 import com.npaas.notify.jobs.NotificationJobRepository;
 import com.npaas.notify.jobs.NotificationJobStatus;
 
+import jakarta.annotation.PreDestroy;
+
 @Service
 public class NotificationDeliveryService {
+
+    private static final AtomicInteger DELIVERY_THREAD_COUNTER = new AtomicInteger();
 
     private final NotificationJobRepository notificationJobRepository;
     private final NotificationDeliveryTransactionService transactionService;
     private final Map<NotificationChannel, NotificationDeliveryHandler> handlers;
+    private final ExecutorService deliveryExecutor;
+    private final long handlerTimeoutSeconds;
 
     public NotificationDeliveryService(
             NotificationJobRepository notificationJobRepository,
             NotificationDeliveryTransactionService transactionService,
-            List<NotificationDeliveryHandler> deliveryHandlers) {
+            List<NotificationDeliveryHandler> deliveryHandlers,
+            @Value("${notify.delivery.handler-timeout-seconds:20}") long handlerTimeoutSeconds) {
         this.notificationJobRepository = notificationJobRepository;
         this.transactionService = transactionService;
         this.handlers = toHandlerMap(deliveryHandlers);
+        this.handlerTimeoutSeconds = Math.max(1, handlerTimeoutSeconds);
+        this.deliveryExecutor = Executors.newCachedThreadPool(task -> {
+            Thread thread = new Thread(task);
+            thread.setName("notification-delivery-" + DELIVERY_THREAD_COUNTER.incrementAndGet());
+            thread.setDaemon(true);
+            return thread;
+        });
+    }
+
+    @PreDestroy
+    void shutdown() {
+        deliveryExecutor.shutdownNow();
     }
 
     public int deliverDueJobs(int batchSize) {
@@ -80,7 +107,7 @@ public class NotificationDeliveryService {
         }
 
         try {
-            DeliveryResult result = handler.deliver(claimedJob.job(), claimedJob.event());
+            DeliveryResult result = deliverWithTimeout(handler, claimedJob);
             transactionService.recordSuccess(claimedJob, result);
         } catch (DeliveryException exception) {
             transactionService.recordFailure(
@@ -99,6 +126,37 @@ public class NotificationDeliveryService {
         }
 
         return 1;
+    }
+
+    private DeliveryResult deliverWithTimeout(
+            NotificationDeliveryHandler handler,
+            ClaimedNotificationJob claimedJob) {
+        Future<DeliveryResult> delivery = deliveryExecutor.submit(
+            () -> handler.deliver(claimedJob.job(), claimedJob.event())
+        );
+
+        try {
+            return delivery.get(handlerTimeoutSeconds, TimeUnit.SECONDS);
+        } catch (TimeoutException exception) {
+            delivery.cancel(true);
+            throw new DeliveryException(
+                "Delivery handler timed out after " + handlerTimeoutSeconds + " seconds",
+                true,
+                exception
+            );
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new DeliveryException("Delivery handler interrupted", true, exception);
+        } catch (ExecutionException exception) {
+            Throwable cause = exception.getCause();
+            if (cause instanceof DeliveryException deliveryException) {
+                throw deliveryException;
+            }
+            if (cause instanceof RuntimeException runtimeException) {
+                throw runtimeException;
+            }
+            throw new DeliveryException("Unexpected delivery error", true, exception);
+        }
     }
 
     private String providerName(NotificationDeliveryHandler handler) {

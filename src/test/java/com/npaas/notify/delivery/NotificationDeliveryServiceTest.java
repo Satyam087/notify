@@ -43,7 +43,8 @@ class NotificationDeliveryServiceTest {
         deliveryService = new NotificationDeliveryService(
             notificationJobRepository,
             transactionService,
-            List.of(handler)
+            List.of(handler),
+            5
         );
     }
 
