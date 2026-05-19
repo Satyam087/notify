@@ -7,6 +7,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -25,18 +26,39 @@ class NotificationDeliveryTransactionService {
     private final NotificationDeliveryAttemptRepository deliveryAttemptRepository;
     private final int maxAttempts;
     private final Duration retryBackoff;
+    private final Duration processingTimeout;
 
     NotificationDeliveryTransactionService(
             NotificationJobRepository notificationJobRepository,
             NotificationEventRepository notificationEventRepository,
             NotificationDeliveryAttemptRepository deliveryAttemptRepository,
             @Value("${notify.delivery.max-attempts:3}") int maxAttempts,
-            @Value("${notify.delivery.retry-backoff-seconds:60}") long retryBackoffSeconds) {
+            @Value("${notify.delivery.retry-backoff-seconds:60}") long retryBackoffSeconds,
+            @Value("${notify.delivery.processing-timeout-seconds:120}") long processingTimeoutSeconds) {
         this.notificationJobRepository = notificationJobRepository;
         this.notificationEventRepository = notificationEventRepository;
         this.deliveryAttemptRepository = deliveryAttemptRepository;
         this.maxAttempts = maxAttempts;
         this.retryBackoff = Duration.ofSeconds(retryBackoffSeconds);
+        this.processingTimeout = Duration.ofSeconds(Math.max(30, processingTimeoutSeconds));
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public int recoverStaleProcessingJobs(int limit) {
+        Instant staleBefore = Instant.now().minus(processingTimeout);
+        List<NotificationJob> staleJobs = notificationJobRepository
+            .findByStatusAndUpdatedAtLessThanEqualOrderByUpdatedAtAsc(
+                NotificationJobStatus.PROCESSING,
+                staleBefore,
+                PageRequest.of(0, limit)
+            );
+
+        Instant retryAt = Instant.now();
+        for (NotificationJob job : staleJobs) {
+            job.markPending(retryAt);
+        }
+
+        return staleJobs.size();
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)

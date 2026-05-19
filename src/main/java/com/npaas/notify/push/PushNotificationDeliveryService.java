@@ -1,9 +1,13 @@
 package com.npaas.notify.push;
 
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 import org.apache.http.HttpResponse;
 import org.springframework.beans.factory.annotation.Value;
@@ -32,6 +36,7 @@ public class PushNotificationDeliveryService implements NotificationDeliveryHand
     private final String vapidPublicKey;
     private final String vapidPrivateKey;
     private final String vapidSubject;
+    private final Duration deliveryTimeout;
 
     public PushNotificationDeliveryService(
             PushSubscriptionService pushSubscriptionService,
@@ -39,13 +44,15 @@ public class PushNotificationDeliveryService implements NotificationDeliveryHand
             @Value("${notify.push.enabled:false}") boolean enabled,
             @Value("${notify.push.vapid.public-key:}") String vapidPublicKey,
             @Value("${notify.push.vapid.private-key:}") String vapidPrivateKey,
-            @Value("${notify.push.vapid.subject:mailto:connect@campuscritique.in}") String vapidSubject) {
+            @Value("${notify.push.vapid.subject:mailto:connect@campuscritique.in}") String vapidSubject,
+            @Value("${notify.push.delivery-timeout-seconds:10}") long deliveryTimeoutSeconds) {
         this.pushSubscriptionService = pushSubscriptionService;
         this.objectMapper = objectMapper;
         this.enabled = enabled;
         this.vapidPublicKey = vapidPublicKey;
         this.vapidPrivateKey = vapidPrivateKey;
         this.vapidSubject = vapidSubject;
+        this.deliveryTimeout = Duration.ofSeconds(Math.max(1, deliveryTimeoutSeconds));
     }
 
     @Override
@@ -92,12 +99,14 @@ public class PushNotificationDeliveryService implements NotificationDeliveryHand
     }
 
     private int deliverToSubscription(PushService pushService, PushSubscription savedSubscription, String payload) {
+        Future<HttpResponse> delivery = null;
         try {
             Subscription subscription = new Subscription(
                 savedSubscription.getEndpoint(),
                 new Subscription.Keys(savedSubscription.getP256dhKey(), savedSubscription.getAuthKey())
             );
-            HttpResponse response = pushService.send(new Notification(subscription, payload));
+            delivery = pushService.sendAsync(new Notification(subscription, payload));
+            HttpResponse response = delivery.get(deliveryTimeout.toMillis(), TimeUnit.MILLISECONDS);
             int statusCode = response.getStatusLine().getStatusCode();
 
             if (statusCode >= 200 && statusCode < 300) {
@@ -111,17 +120,32 @@ public class PushNotificationDeliveryService implements NotificationDeliveryHand
                 "Push provider returned HTTP " + statusCode,
                 shouldDeactivate
             );
+            if (!shouldDeactivate && statusCode >= 500) {
+                throw new DeliveryException("Push provider returned HTTP " + statusCode, true);
+            }
             return 0;
+        } catch (TimeoutException exception) {
+            if (delivery != null) {
+                delivery.cancel(true);
+            }
+            pushSubscriptionService.recordFailure(
+                savedSubscription.getId(),
+                "Push delivery timed out after " + deliveryTimeout.toSeconds() + " seconds",
+                false
+            );
+            throw new DeliveryException("Push delivery timed out", true);
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
             throw new DeliveryException("Push delivery interrupted", true);
+        } catch (DeliveryException exception) {
+            throw exception;
         } catch (Exception exception) {
             pushSubscriptionService.recordFailure(
                 savedSubscription.getId(),
                 "Push delivery failed: " + safeMessage(exception),
                 false
             );
-            return 0;
+            throw new DeliveryException("Push delivery failed: " + safeMessage(exception), true);
         }
     }
 

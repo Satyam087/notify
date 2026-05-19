@@ -37,6 +37,11 @@ public interface NotificationJobRepository extends JpaRepository<NotificationJob
             NotificationJobStatus status,
             Pageable pageable);
 
+    List<NotificationJob> findByStatusAndUpdatedAtLessThanEqualOrderByUpdatedAtAsc(
+            NotificationJobStatus status,
+            Instant updatedAt,
+            Pageable pageable);
+
     long countByEventIdAndStatusIn(UUID eventId, Collection<NotificationJobStatus> statuses);
 
     long countByEventId(UUID eventId);

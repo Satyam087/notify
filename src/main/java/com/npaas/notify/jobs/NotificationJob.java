@@ -145,6 +145,11 @@ public class NotificationJob {
         this.nextAttemptAt = nextAttemptAt;
     }
 
+    public void markPending(Instant nextAttemptAt) {
+        status = NotificationJobStatus.PENDING;
+        this.nextAttemptAt = nextAttemptAt;
+    }
+
     public void markFailed() {
         attempts += 1;
         status = NotificationJobStatus.FAILED;

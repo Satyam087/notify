@@ -32,6 +32,7 @@ public class NotificationDeliveryService {
     }
 
     public int deliverDueJobs(int batchSize) {
+        transactionService.recoverStaleProcessingJobs(batchSize);
         List<UUID> jobIds = findDueJobIds(batchSize);
         int claimedJobs = 0;
 
