@@ -1,19 +1,19 @@
 package com.npaas.notify.push;
 
+import java.io.IOException;
+import java.net.SocketTimeoutException;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
-import java.util.concurrent.atomic.AtomicInteger;
 
-import org.apache.http.HttpResponse;
+import org.apache.http.client.config.RequestConfig;
+import org.apache.http.client.methods.CloseableHttpResponse;
+import org.apache.http.client.methods.HttpPost;
+import org.apache.http.impl.client.CloseableHttpClient;
+import org.apache.http.impl.client.HttpClients;
+import org.apache.http.util.EntityUtils;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -27,6 +27,7 @@ import com.npaas.notify.events.NotificationEvent;
 import com.npaas.notify.jobs.NotificationChannel;
 import com.npaas.notify.jobs.NotificationJob;
 
+import nl.martijndwars.webpush.Encoding;
 import nl.martijndwars.webpush.Notification;
 import nl.martijndwars.webpush.PushService;
 import nl.martijndwars.webpush.Subscription;
@@ -35,8 +36,6 @@ import jakarta.annotation.PreDestroy;
 @Service
 public class PushNotificationDeliveryService implements NotificationDeliveryHandler {
 
-    private static final AtomicInteger PUSH_THREAD_COUNTER = new AtomicInteger();
-
     private final PushSubscriptionService pushSubscriptionService;
     private final ObjectMapper objectMapper;
     private final boolean enabled;
@@ -44,7 +43,7 @@ public class PushNotificationDeliveryService implements NotificationDeliveryHand
     private final String vapidPrivateKey;
     private final String vapidSubject;
     private final Duration deliveryTimeout;
-    private final ExecutorService deliveryExecutor;
+    private final CloseableHttpClient httpClient;
 
     public PushNotificationDeliveryService(
             PushSubscriptionService pushSubscriptionService,
@@ -61,17 +60,23 @@ public class PushNotificationDeliveryService implements NotificationDeliveryHand
         this.vapidPrivateKey = vapidPrivateKey;
         this.vapidSubject = vapidSubject;
         this.deliveryTimeout = Duration.ofSeconds(Math.max(1, deliveryTimeoutSeconds));
-        this.deliveryExecutor = Executors.newFixedThreadPool(4, task -> {
-            Thread thread = new Thread(task);
-            thread.setName("push-delivery-" + PUSH_THREAD_COUNTER.incrementAndGet());
-            thread.setDaemon(true);
-            return thread;
-        });
+        this.httpClient = HttpClients.custom()
+            .setDefaultRequestConfig(RequestConfig.custom()
+                .setConnectTimeout(timeoutMillis())
+                .setConnectionRequestTimeout(timeoutMillis())
+                .setSocketTimeout(timeoutMillis())
+                .build())
+            .disableAutomaticRetries()
+            .build();
     }
 
     @PreDestroy
     void shutdown() {
-        deliveryExecutor.shutdownNow();
+        try {
+            httpClient.close();
+        } catch (IOException ignored) {
+            // Nothing useful to do during application shutdown.
+        }
     }
 
     @Override
@@ -118,25 +123,27 @@ public class PushNotificationDeliveryService implements NotificationDeliveryHand
     }
 
     private int deliverToSubscription(PushService pushService, PushSubscription savedSubscription, String payload) {
-        Future<HttpResponse> delivery = null;
         try {
             Subscription subscription = new Subscription(
                 savedSubscription.getEndpoint(),
                 new Subscription.Keys(savedSubscription.getP256dhKey(), savedSubscription.getAuthKey())
             );
             Notification notification = new Notification(subscription, payload);
-            delivery = deliveryExecutor.submit(() -> pushService.send(notification));
-            HttpResponse response = delivery.get(deliveryTimeout.toMillis(), TimeUnit.MILLISECONDS);
-            int statusCode = response.getStatusLine().getStatusCode();
+            HttpPost request = pushService.preparePost(notification, Encoding.AES128GCM);
+            int statusCode;
+            try (CloseableHttpResponse response = httpClient.execute(request)) {
+                statusCode = response.getStatusLine().getStatusCode();
+                EntityUtils.consumeQuietly(response.getEntity());
+            }
 
             if (statusCode >= 200 && statusCode < 300) {
-                pushSubscriptionService.recordSuccess(savedSubscription.getId());
+                recordSubscriptionSuccess(savedSubscription);
                 return 1;
             }
 
             boolean shouldDeactivate = statusCode == 404 || statusCode == 410;
-            pushSubscriptionService.recordFailure(
-                savedSubscription.getId(),
+            recordSubscriptionFailure(
+                savedSubscription,
                 "Push provider returned HTTP " + statusCode,
                 shouldDeactivate
             );
@@ -144,36 +151,42 @@ public class PushNotificationDeliveryService implements NotificationDeliveryHand
                 throw new DeliveryException("Push provider returned HTTP " + statusCode, true);
             }
             return 0;
-        } catch (TimeoutException exception) {
-            if (delivery != null) {
-                delivery.cancel(true);
-            }
-            pushSubscriptionService.recordFailure(
-                savedSubscription.getId(),
+        } catch (SocketTimeoutException exception) {
+            recordSubscriptionFailure(
+                savedSubscription,
                 "Push delivery timed out after " + deliveryTimeout.toSeconds() + " seconds",
                 false
             );
             throw new DeliveryException("Push delivery timed out", true);
-        } catch (InterruptedException exception) {
-            Thread.currentThread().interrupt();
-            throw new DeliveryException("Push delivery interrupted", true);
         } catch (DeliveryException exception) {
             throw exception;
-        } catch (ExecutionException exception) {
-            Throwable cause = exception.getCause() == null ? exception : exception.getCause();
-            pushSubscriptionService.recordFailure(
-                savedSubscription.getId(),
-                "Push delivery failed: " + safeMessage(cause),
-                false
-            );
-            throw new DeliveryException("Push delivery failed: " + safeMessage(cause), true);
         } catch (Exception exception) {
-            pushSubscriptionService.recordFailure(
-                savedSubscription.getId(),
+            recordSubscriptionFailure(
+                savedSubscription,
                 "Push delivery failed: " + safeMessage(exception),
                 false
             );
             throw new DeliveryException("Push delivery failed: " + safeMessage(exception), true);
+        }
+    }
+
+    private int timeoutMillis() {
+        return Math.toIntExact(Math.min(deliveryTimeout.toMillis(), Integer.MAX_VALUE));
+    }
+
+    private void recordSubscriptionSuccess(PushSubscription subscription) {
+        try {
+            pushSubscriptionService.recordSuccess(subscription.getId());
+        } catch (RuntimeException ignored) {
+            // Job-level delivery status must not be held hostage by subscription bookkeeping.
+        }
+    }
+
+    private void recordSubscriptionFailure(PushSubscription subscription, String message, boolean deactivate) {
+        try {
+            pushSubscriptionService.recordFailure(subscription.getId(), message, deactivate);
+        } catch (RuntimeException ignored) {
+            // The delivery transaction records the provider attempt separately.
         }
     }
 
