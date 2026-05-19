@@ -54,7 +54,8 @@ public class InAppNotificationDeliveryService implements NotificationDeliveryHan
                 event.getId(),
                 recipientUserId.get(),
                 job.getRenderedSubject(),
-                job.getRenderedBody()
+                job.getRenderedBody(),
+                extractDeepLink(event.getPayload()).orElse(null)
             );
             inAppNotificationRepository.save(notification);
         } catch (DataIntegrityViolationException ignored) {
@@ -72,6 +73,21 @@ public class InAppNotificationDeliveryService implements NotificationDeliveryHan
         }
 
         return Optional.of(userId.asText());
+    }
+
+    private Optional<String> extractDeepLink(String payloadJson) {
+        JsonNode payload = parseJson(payloadJson);
+        JsonNode deepLink = payload.get("deepLink");
+        if (deepLink == null || deepLink.isNull() || !deepLink.isTextual() || deepLink.asText().isBlank()) {
+            return Optional.empty();
+        }
+
+        String value = deepLink.asText().trim();
+        if (value.length() > 500) {
+            return Optional.of(value.substring(0, 500));
+        }
+
+        return Optional.of(value);
     }
 
     private JsonNode parseJson(String json) {

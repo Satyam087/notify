@@ -9,6 +9,7 @@ public record InAppNotificationResponse(
         String userId,
         String title,
         String body,
+        String deepLink,
         boolean read,
         Instant readAt,
         Instant createdAt) {
@@ -20,6 +21,7 @@ public record InAppNotificationResponse(
             notification.getRecipientUserId(),
             notification.getTitle(),
             notification.getBody(),
+            notification.getDeepLink(),
             notification.isRead(),
             notification.getReadAt(),
             notification.getCreatedAt()

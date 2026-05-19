@@ -35,6 +35,9 @@ public class InAppNotification {
     @Column(nullable = false, columnDefinition = "text")
     private String body;
 
+    @Column(name = "deep_link", length = 500)
+    private String deepLink;
+
     @Column(name = "read_at")
     private Instant readAt;
 
@@ -48,7 +51,7 @@ public class InAppNotification {
     }
 
     public InAppNotification(UUID id, String tenantSlug, UUID jobId, UUID eventId, String recipientUserId,
-            String title, String body) {
+            String title, String body, String deepLink) {
         this.id = id;
         this.tenantSlug = tenantSlug;
         this.jobId = jobId;
@@ -56,6 +59,7 @@ public class InAppNotification {
         this.recipientUserId = recipientUserId;
         this.title = title;
         this.body = body;
+        this.deepLink = deepLink;
     }
 
     @PrePersist
@@ -96,6 +100,10 @@ public class InAppNotification {
 
     public String getBody() {
         return body;
+    }
+
+    public String getDeepLink() {
+        return deepLink;
     }
 
     public Instant getReadAt() {
