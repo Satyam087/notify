@@ -36,6 +36,7 @@ public class TenantApiKeyAuthenticationFilter extends OncePerRequestFilter {
         return !matchesProtectedPath(path, "/api/v1/events")
             && !matchesProtectedPath(path, "/api/v1/in-app-notifications")
             && !matchesProtectedPath(path, "/api/v1/jobs")
+            && !matchesProtectedPath(path, "/api/v1/push-subscriptions")
             && !matchesProtectedPath(path, "/api/v1/templates");
     }
 

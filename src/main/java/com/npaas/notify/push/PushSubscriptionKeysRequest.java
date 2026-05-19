@@ -1,0 +1,9 @@
+package com.npaas.notify.push;
+
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
+
+public record PushSubscriptionKeysRequest(
+        @NotBlank @Size(max = 512) String p256dh,
+        @NotBlank @Size(max = 512) String auth) {
+}

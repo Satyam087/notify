@@ -68,6 +68,12 @@ notify:
     resend:
       api-key: ${NOTIFY_EMAIL_RESEND_API_KEY:${RESEND_API_KEY:${SPRING_MAIL_PASSWORD:}}}
       base-url: ${NOTIFY_EMAIL_RESEND_BASE_URL:https://api.resend.com}
+  push:
+    enabled: ${NOTIFY_PUSH_ENABLED:false}
+    vapid:
+      public-key: ${NOTIFY_PUSH_VAPID_PUBLIC_KEY:}
+      private-key: ${NOTIFY_PUSH_VAPID_PRIVATE_KEY:}
+      subject: ${NOTIFY_PUSH_VAPID_SUBJECT:mailto:connect@campuscritique.in}
   rabbitmq:
     events:
       exchange: notify.events

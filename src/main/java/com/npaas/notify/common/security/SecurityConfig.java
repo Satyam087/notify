@@ -33,6 +33,8 @@ public class SecurityConfig {
                     "/api/v1/events/**",
                     "/api/v1/in-app-notifications/**",
                     "/api/v1/jobs/**",
+                    "/api/v1/push-subscriptions",
+                    "/api/v1/push-subscriptions/**",
                     "/api/v1/templates",
                     "/api/v1/templates/**"
                 ).authenticated()
