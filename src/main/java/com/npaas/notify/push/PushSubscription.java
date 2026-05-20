@@ -26,10 +26,16 @@ public class PushSubscription {
     @Column(nullable = false, columnDefinition = "text")
     private String endpoint;
 
-    @Column(name = "p256dh_key", nullable = false, columnDefinition = "text")
+    @Column(nullable = false, length = 30)
+    private String provider = "WEB_PUSH";
+
+    @Column(name = "fcm_token", columnDefinition = "text")
+    private String fcmToken;
+
+    @Column(name = "p256dh_key", columnDefinition = "text")
     private String p256dhKey;
 
-    @Column(name = "auth_key", nullable = false, columnDefinition = "text")
+    @Column(name = "auth_key", columnDefinition = "text")
     private String authKey;
 
     @Column(name = "user_agent", columnDefinition = "text")
@@ -60,11 +66,13 @@ public class PushSubscription {
     }
 
     public PushSubscription(UUID id, String tenantSlug, String recipientUserId, String endpoint,
-            String p256dhKey, String authKey, String userAgent) {
+            String provider, String fcmToken, String p256dhKey, String authKey, String userAgent) {
         this.id = id;
         this.tenantSlug = tenantSlug;
         this.recipientUserId = recipientUserId;
         this.endpoint = endpoint;
+        this.provider = provider;
+        this.fcmToken = fcmToken;
         this.p256dhKey = p256dhKey;
         this.authKey = authKey;
         this.userAgent = userAgent;
@@ -96,6 +104,14 @@ public class PushSubscription {
 
     public String getEndpoint() {
         return endpoint;
+    }
+
+    public String getProvider() {
+        return provider;
+    }
+
+    public String getFcmToken() {
+        return fcmToken;
     }
 
     public String getP256dhKey() {
@@ -138,9 +154,13 @@ public class PushSubscription {
         return updatedAt;
     }
 
-    public void refresh(String tenantSlug, String recipientUserId, String p256dhKey, String authKey, String userAgent) {
+    public void refresh(String tenantSlug, String recipientUserId, String endpoint, String provider,
+            String fcmToken, String p256dhKey, String authKey, String userAgent) {
         this.tenantSlug = tenantSlug;
         this.recipientUserId = recipientUserId;
+        this.endpoint = endpoint;
+        this.provider = provider;
+        this.fcmToken = fcmToken;
         this.p256dhKey = p256dhKey;
         this.authKey = authKey;
         this.userAgent = userAgent;

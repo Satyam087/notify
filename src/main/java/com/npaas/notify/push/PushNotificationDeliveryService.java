@@ -1,25 +1,21 @@
 package com.npaas.notify.push;
 
-import java.io.IOException;
-import java.net.SocketTimeoutException;
 import java.nio.charset.StandardCharsets;
-import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
-import org.apache.http.client.config.RequestConfig;
-import org.apache.http.client.methods.CloseableHttpResponse;
-import org.apache.http.client.methods.HttpPost;
-import org.apache.http.impl.client.CloseableHttpClient;
-import org.apache.http.impl.client.HttpClients;
-import org.apache.http.util.EntityUtils;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.firebase.messaging.FirebaseMessaging;
+import com.google.firebase.messaging.FirebaseMessagingException;
+import com.google.firebase.messaging.Message;
+import com.google.firebase.messaging.MessagingErrorCode;
 import com.npaas.notify.delivery.DeliveryException;
 import com.npaas.notify.delivery.DeliveryResult;
 import com.npaas.notify.delivery.NotificationDeliveryHandler;
@@ -27,56 +23,26 @@ import com.npaas.notify.events.NotificationEvent;
 import com.npaas.notify.jobs.NotificationChannel;
 import com.npaas.notify.jobs.NotificationJob;
 
-import nl.martijndwars.webpush.Encoding;
-import nl.martijndwars.webpush.Notification;
-import nl.martijndwars.webpush.PushService;
-import nl.martijndwars.webpush.Subscription;
-import jakarta.annotation.PreDestroy;
-
 @Service
 public class PushNotificationDeliveryService implements NotificationDeliveryHandler {
 
     private final PushSubscriptionService pushSubscriptionService;
     private final ObjectMapper objectMapper;
+    private final ObjectProvider<FirebaseMessaging> firebaseMessagingProvider;
     private final boolean enabled;
-    private final String vapidPublicKey;
-    private final String vapidPrivateKey;
-    private final String vapidSubject;
-    private final Duration deliveryTimeout;
-    private final CloseableHttpClient httpClient;
+    private final String provider;
 
     public PushNotificationDeliveryService(
             PushSubscriptionService pushSubscriptionService,
             ObjectMapper objectMapper,
+            ObjectProvider<FirebaseMessaging> firebaseMessagingProvider,
             @Value("${notify.push.enabled:false}") boolean enabled,
-            @Value("${notify.push.vapid.public-key:}") String vapidPublicKey,
-            @Value("${notify.push.vapid.private-key:}") String vapidPrivateKey,
-            @Value("${notify.push.vapid.subject:mailto:connect@campuscritique.in}") String vapidSubject,
-            @Value("${notify.push.delivery-timeout-seconds:10}") long deliveryTimeoutSeconds) {
+            @Value("${notify.push.provider:firebase}") String provider) {
         this.pushSubscriptionService = pushSubscriptionService;
         this.objectMapper = objectMapper;
+        this.firebaseMessagingProvider = firebaseMessagingProvider;
         this.enabled = enabled;
-        this.vapidPublicKey = vapidPublicKey;
-        this.vapidPrivateKey = vapidPrivateKey;
-        this.vapidSubject = vapidSubject;
-        this.deliveryTimeout = Duration.ofSeconds(Math.max(1, deliveryTimeoutSeconds));
-        this.httpClient = HttpClients.custom()
-            .setDefaultRequestConfig(RequestConfig.custom()
-                .setConnectTimeout(timeoutMillis())
-                .setConnectionRequestTimeout(timeoutMillis())
-                .setSocketTimeout(timeoutMillis())
-                .build())
-            .disableAutomaticRetries()
-            .build();
-    }
-
-    @PreDestroy
-    void shutdown() {
-        try {
-            httpClient.close();
-        } catch (IOException ignored) {
-            // Nothing useful to do during application shutdown.
-        }
+        this.provider = provider == null ? "firebase" : provider.trim().toLowerCase();
     }
 
     @Override
@@ -87,11 +53,15 @@ public class PushNotificationDeliveryService implements NotificationDeliveryHand
     @Override
     public DeliveryResult deliver(NotificationJob job, NotificationEvent event) {
         if (!enabled) {
-            return DeliveryResult.delivered("web-push:disabled");
+            return DeliveryResult.delivered("push:disabled");
+        }
+        if (!"firebase".equals(provider) && !"fcm".equals(provider)) {
+            throw new DeliveryException("Unsupported push provider: " + provider, false);
         }
 
-        if (vapidPublicKey.isBlank() || vapidPrivateKey.isBlank()) {
-            throw new DeliveryException("Push VAPID keys are not configured", true);
+        FirebaseMessaging firebaseMessaging = firebaseMessagingProvider.getIfAvailable();
+        if (firebaseMessaging == null) {
+            throw new DeliveryException("Firebase messaging is not configured", true);
         }
 
         String recipientUserId = extractRecipientUserId(event.getRecipient())
@@ -100,78 +70,53 @@ public class PushNotificationDeliveryService implements NotificationDeliveryHand
             .activeForRecipient(job.getTenantSlug(), recipientUserId);
 
         if (subscriptions.isEmpty()) {
-            return DeliveryResult.delivered("web-push:none");
+            return DeliveryResult.delivered("firebase:none");
         }
 
         int delivered = 0;
-        PushService pushService = createPushService();
-        String payload = buildPayload(job, event);
-
+        Map<String, String> payload = buildPayload(job, event);
         for (PushSubscription subscription : subscriptions) {
-            delivered += deliverToSubscription(pushService, subscription, payload);
+            delivered += deliverToSubscription(firebaseMessaging, subscription, payload);
         }
 
-        return DeliveryResult.delivered("web-push:" + delivered);
+        return DeliveryResult.delivered("firebase:" + delivered);
     }
 
-    private PushService createPushService() {
-        try {
-            return new PushService(vapidPublicKey, vapidPrivateKey, vapidSubject);
-        } catch (Exception exception) {
-            throw new DeliveryException("Push VAPID configuration is invalid", false);
-        }
-    }
-
-    private int deliverToSubscription(PushService pushService, PushSubscription savedSubscription, String payload) {
-        try {
-            Subscription subscription = new Subscription(
-                savedSubscription.getEndpoint(),
-                new Subscription.Keys(savedSubscription.getP256dhKey(), savedSubscription.getAuthKey())
-            );
-            Notification notification = new Notification(subscription, payload);
-            HttpPost request = pushService.preparePost(notification, Encoding.AES128GCM);
-            int statusCode;
-            try (CloseableHttpResponse response = httpClient.execute(request)) {
-                statusCode = response.getStatusLine().getStatusCode();
-                EntityUtils.consumeQuietly(response.getEntity());
-            }
-
-            if (statusCode >= 200 && statusCode < 300) {
-                recordSubscriptionSuccess(savedSubscription);
-                return 1;
-            }
-
-            boolean shouldDeactivate = statusCode == 404 || statusCode == 410;
-            recordSubscriptionFailure(
-                savedSubscription,
-                "Push provider returned HTTP " + statusCode,
-                shouldDeactivate
-            );
-            if (!shouldDeactivate && statusCode >= 500) {
-                throw new DeliveryException("Push provider returned HTTP " + statusCode, true);
-            }
+    private int deliverToSubscription(
+            FirebaseMessaging firebaseMessaging,
+            PushSubscription subscription,
+            Map<String, String> payload) {
+        String token = subscription.getFcmToken();
+        if (token == null || token.isBlank()) {
+            recordSubscriptionFailure(subscription, "Missing Firebase token", true);
             return 0;
-        } catch (SocketTimeoutException exception) {
-            recordSubscriptionFailure(
-                savedSubscription,
-                "Push delivery timed out after " + deliveryTimeout.toSeconds() + " seconds",
-                false
-            );
-            throw new DeliveryException("Push delivery timed out", true);
-        } catch (DeliveryException exception) {
-            throw exception;
-        } catch (Exception exception) {
-            recordSubscriptionFailure(
-                savedSubscription,
-                "Push delivery failed: " + safeMessage(exception),
-                false
-            );
-            throw new DeliveryException("Push delivery failed: " + safeMessage(exception), true);
+        }
+
+        Message message = Message.builder()
+            .setToken(token)
+            .putAllData(payload)
+            .build();
+
+        try {
+            firebaseMessaging.send(message);
+            recordSubscriptionSuccess(subscription);
+            return 1;
+        } catch (FirebaseMessagingException exception) {
+            boolean deactivate = isInvalidToken(exception);
+            recordSubscriptionFailure(subscription, safeMessage(exception), deactivate);
+            if (deactivate) {
+                return 0;
+            }
+            throw new DeliveryException("Firebase push delivery failed: " + safeMessage(exception), true);
+        } catch (RuntimeException exception) {
+            recordSubscriptionFailure(subscription, safeMessage(exception), false);
+            throw new DeliveryException("Firebase push delivery failed: " + safeMessage(exception), true);
         }
     }
 
-    private int timeoutMillis() {
-        return Math.toIntExact(Math.min(deliveryTimeout.toMillis(), Integer.MAX_VALUE));
+    private boolean isInvalidToken(FirebaseMessagingException exception) {
+        MessagingErrorCode code = exception.getMessagingErrorCode();
+        return code == MessagingErrorCode.UNREGISTERED || code == MessagingErrorCode.INVALID_ARGUMENT;
     }
 
     private void recordSubscriptionSuccess(PushSubscription subscription) {
@@ -190,20 +135,14 @@ public class PushNotificationDeliveryService implements NotificationDeliveryHand
         }
     }
 
-    private String buildPayload(NotificationJob job, NotificationEvent event) {
+    private Map<String, String> buildPayload(NotificationJob job, NotificationEvent event) {
         JsonNode payload = parseJson(event.getPayload());
-        Map<String, String> pushPayload = Map.of(
+        return Map.of(
             "title", truncate(job.getRenderedSubject(), 120),
             "body", truncate(job.getRenderedBody(), 240),
             "deepLink", extractText(payload, "deepLink").orElse("/"),
             "eventType", event.getEventType()
         );
-
-        try {
-            return objectMapper.writeValueAsString(pushPayload);
-        } catch (JsonProcessingException exception) {
-            return "{\"title\":\"Notification\",\"body\":\"You have a new CampusCritique update.\",\"deepLink\":\"/\"}";
-        }
     }
 
     private Optional<String> extractRecipientUserId(String recipientJson) {
