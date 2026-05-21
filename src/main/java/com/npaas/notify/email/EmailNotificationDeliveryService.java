@@ -17,6 +17,7 @@ import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestClientResponseException;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -77,20 +78,22 @@ public class EmailNotificationDeliveryService implements NotificationDeliveryHan
 
         String recipientEmail = extractRecipientEmail(event.getRecipient())
             .orElseThrow(() -> new DeliveryException("Missing recipient.email for email notification", false));
+        EmailBody emailBody = resolveEmailBody(job, event);
 
         if (hasText(resendApiKey)) {
-            return deliverWithResend(job, recipientEmail);
+            return deliverWithResend(job, recipientEmail, emailBody);
         }
 
-        return deliverWithSmtp(job, recipientEmail);
+        return deliverWithSmtp(job, recipientEmail, emailBody);
     }
 
-    private DeliveryResult deliverWithResend(NotificationJob job, String recipientEmail) {
+    private DeliveryResult deliverWithResend(NotificationJob job, String recipientEmail, EmailBody emailBody) {
         ResendEmailRequest request = new ResendEmailRequest(
             formatSender(),
             List.of(recipientEmail),
             job.getRenderedSubject(),
-            job.getRenderedBody(),
+            emailBody.text(),
+            emailBody.html(),
             replyToEmail
         );
 
@@ -115,7 +118,7 @@ public class EmailNotificationDeliveryService implements NotificationDeliveryHan
         }
     }
 
-    private DeliveryResult deliverWithSmtp(NotificationJob job, String recipientEmail) {
+    private DeliveryResult deliverWithSmtp(NotificationJob job, String recipientEmail, EmailBody emailBody) {
         JavaMailSender mailSender = mailSenderProvider.getIfAvailable();
         if (mailSender == null) {
             throw new DeliveryException("Email sender is not configured", true);
@@ -128,7 +131,7 @@ public class EmailNotificationDeliveryService implements NotificationDeliveryHan
             helper.setReplyTo(replyToEmail);
             helper.setTo(recipientEmail);
             helper.setSubject(job.getRenderedSubject());
-            helper.setText(job.getRenderedBody(), false);
+            helper.setText(emailBody.body(), emailBody.isHtml());
             mailSender.send(message);
             return DeliveryResult.delivered("smtp");
         } catch (MessagingException exception) {
@@ -170,6 +173,22 @@ public class EmailNotificationDeliveryService implements NotificationDeliveryHan
         return message.length() > 500 ? message.substring(0, 500) : message;
     }
 
+    private EmailBody resolveEmailBody(NotificationJob job, NotificationEvent event) {
+        return extractEmailHtml(event.getPayload())
+            .map(html -> new EmailBody(null, html, true))
+            .orElseGet(() -> new EmailBody(job.getRenderedBody(), null, false));
+    }
+
+    private Optional<String> extractEmailHtml(String payloadJson) {
+        JsonNode payload = parseJson(payloadJson);
+        JsonNode emailHtml = payload.get("emailHtml");
+        if (emailHtml == null || emailHtml.isNull() || !emailHtml.isTextual() || emailHtml.asText().isBlank()) {
+            return Optional.empty();
+        }
+
+        return Optional.of(emailHtml.asText());
+    }
+
     private Optional<String> extractRecipientEmail(String recipientJson) {
         JsonNode recipient = parseJson(recipientJson);
         JsonNode email = recipient.get("email");
@@ -188,11 +207,20 @@ public class EmailNotificationDeliveryService implements NotificationDeliveryHan
         }
     }
 
+    private record EmailBody(String text, String html, boolean isHtml) {
+
+        String body() {
+            return isHtml ? html : text;
+        }
+    }
+
+    @JsonInclude(JsonInclude.Include.NON_NULL)
     private record ResendEmailRequest(
         String from,
         List<String> to,
         String subject,
         String text,
+        String html,
         @JsonProperty("reply_to") String replyTo
     ) {
     }
