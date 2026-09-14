@@ -82,6 +82,13 @@ SPRING_MAIL_SMTP_STARTTLS_ENABLE=true
 
 Until these SMTP variables are configured, keep `NOTIFY_EMAIL_ENABLED=false` so only non-email channels such as in-app delivery are processed. If email is enabled without the required SMTP settings, Notify fails startup with a clear configuration error.
 
+## Email Sender Overrides
+
+Optional payload fields read by the email channel, alongside `emailHtml`:
+
+- `fromName`: display name for the sender. The address stays `NOTIFY_EMAIL_FROM`; `< > "` and line breaks are stripped, 80 characters max.
+- `replyTo`: address replies go to, used only when it parses as an email; otherwise `NOTIFY_EMAIL_REPLY_TO` applies.
+
 ## Template Management
 
 Templates are stored in Postgres per tenant. Delivery jobs render the matching enabled template for the event type and channel before workers send the notification.

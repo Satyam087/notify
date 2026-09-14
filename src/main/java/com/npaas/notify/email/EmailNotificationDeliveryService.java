@@ -3,6 +3,7 @@ package com.npaas.notify.email;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.regex.Pattern;
 
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
@@ -37,6 +38,9 @@ import jakarta.mail.internet.MimeMessage;
 public class EmailNotificationDeliveryService implements NotificationDeliveryHandler {
 
     private final ObjectProvider<JavaMailSender> mailSenderProvider;
+    private static final Pattern REPLY_TO_PATTERN =
+        Pattern.compile("^[^\\s@<>]{1,64}@[^\\s@<>]{1,190}\\.[A-Za-z]{2,24}$");
+
     private final ObjectMapper objectMapper;
     private final RestClient resendClient;
     private final boolean enabled;
@@ -79,22 +83,23 @@ public class EmailNotificationDeliveryService implements NotificationDeliveryHan
         String recipientEmail = extractRecipientEmail(event.getRecipient())
             .orElseThrow(() -> new DeliveryException("Missing recipient.email for email notification", false));
         EmailBody emailBody = resolveEmailBody(job, event);
+        EmailSender sender = resolveSender(event.getPayload());
 
         if (hasText(resendApiKey)) {
-            return deliverWithResend(job, recipientEmail, emailBody);
+            return deliverWithResend(job, recipientEmail, emailBody, sender);
         }
 
-        return deliverWithSmtp(job, recipientEmail, emailBody);
+        return deliverWithSmtp(job, recipientEmail, emailBody, sender);
     }
 
-    private DeliveryResult deliverWithResend(NotificationJob job, String recipientEmail, EmailBody emailBody) {
+    private DeliveryResult deliverWithResend(NotificationJob job, String recipientEmail, EmailBody emailBody, EmailSender sender) {
         ResendEmailRequest request = new ResendEmailRequest(
-            formatSender(),
+            formatSender(sender.fromName()),
             List.of(recipientEmail),
             job.getRenderedSubject(),
             emailBody.text(),
             emailBody.html(),
-            replyToEmail
+            sender.replyTo()
         );
 
         try {
@@ -118,7 +123,7 @@ public class EmailNotificationDeliveryService implements NotificationDeliveryHan
         }
     }
 
-    private DeliveryResult deliverWithSmtp(NotificationJob job, String recipientEmail, EmailBody emailBody) {
+    private DeliveryResult deliverWithSmtp(NotificationJob job, String recipientEmail, EmailBody emailBody, EmailSender sender) {
         JavaMailSender mailSender = mailSenderProvider.getIfAvailable();
         if (mailSender == null) {
             throw new DeliveryException("Email sender is not configured", true);
@@ -127,8 +132,8 @@ public class EmailNotificationDeliveryService implements NotificationDeliveryHan
         try {
             MimeMessage message = mailSender.createMimeMessage();
             MimeMessageHelper helper = new MimeMessageHelper(message, false, "UTF-8");
-            helper.setFrom(new InternetAddress(fromEmail, fromName));
-            helper.setReplyTo(replyToEmail);
+            helper.setFrom(new InternetAddress(fromEmail, sender.fromName()));
+            helper.setReplyTo(sender.replyTo());
             helper.setTo(recipientEmail);
             helper.setSubject(job.getRenderedSubject());
             helper.setText(emailBody.body(), emailBody.isHtml());
@@ -143,12 +148,42 @@ public class EmailNotificationDeliveryService implements NotificationDeliveryHan
         }
     }
 
-    private String formatSender() {
-        if (!hasText(fromName)) {
+    private String formatSender(String displayName) {
+        if (!hasText(displayName)) {
             return fromEmail;
         }
 
-        return fromName + " <" + fromEmail + ">";
+        return displayName + " <" + fromEmail + ">";
+    }
+
+    /**
+     * Per-event sender overrides carried in the payload, like {@code emailHtml}:
+     * {@code fromName} changes only the display name (the address stays the verified sender),
+     * {@code replyTo} points replies at the person who triggered the event.
+     */
+    EmailSender resolveSender(String payloadJson) {
+        JsonNode payload = parseJson(payloadJson);
+        String displayName = textField(payload, "fromName")
+            .map(value -> value.replaceAll("[\\r\\n<>\"]", " ").trim())
+            .filter(this::hasText)
+            .map(value -> value.length() > 80 ? value.substring(0, 80) : value)
+            .orElse(fromName);
+        String replyTo = textField(payload, "replyTo")
+            .filter(value -> REPLY_TO_PATTERN.matcher(value).matches())
+            .orElse(replyToEmail);
+        return new EmailSender(displayName, replyTo);
+    }
+
+    private Optional<String> textField(JsonNode node, String field) {
+        JsonNode value = node.get(field);
+        if (value == null || value.isNull() || !value.isTextual() || value.asText().isBlank()) {
+            return Optional.empty();
+        }
+
+        return Optional.of(value.asText().trim());
+    }
+
+    record EmailSender(String fromName, String replyTo) {
     }
 
     private boolean isRetryableHttpStatus(HttpStatusCode statusCode) {
