@@ -47,6 +47,8 @@ management:
 notify:
   security:
     allowed-origins: ${NOTIFY_ALLOWED_ORIGINS:}
+  metrics:
+    platform-tenants: ${NOTIFY_METRICS_PLATFORM_TENANTS:portfolio}
     max-event-body-bytes: ${NOTIFY_MAX_EVENT_BODY_BYTES:65536}
   delivery:
     enabled: ${NOTIFY_DELIVERY_ENABLED:true}
