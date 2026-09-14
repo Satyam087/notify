@@ -38,7 +38,7 @@ public class MetricsService {
                count(*) FILTER (WHERE status = 'SENT') AS sent,
                count(*) FILTER (WHERE status = 'FAILED') AS failed
           FROM notification_jobs
-         WHERE tenant_slug = :tenant
+         WHERE (:tenant IS NULL OR tenant_slug = :tenant)
          GROUP BY channel
          ORDER BY channel
         """;
@@ -77,14 +77,7 @@ public class MetricsService {
     public MetricsResponse metrics(String tenantId, int days) {
         DeliveryTotals tenant = totals(tenantId);
 
-        List<ChannelMetrics> byChannel = jdbcClient.sql(BY_CHANNEL_SQL)
-            .param("tenant", tenantId)
-            .query((rs, rowNum) -> new ChannelMetrics(
-                rs.getString("channel"),
-                rs.getLong("jobs"),
-                rs.getLong("sent"),
-                rs.getLong("failed")))
-            .list();
+        List<ChannelMetrics> byChannel = byChannel(tenantId);
 
         List<DailyMetrics> byDay = jdbcClient.sql(BY_DAY_SQL)
             .param("tenant", tenantId)
@@ -106,7 +99,19 @@ public class MetricsService {
         return new PlatformMetrics(
             ((Number) counts.get("tenants")).longValue(),
             ((Number) counts.get("push_subscriptions")).longValue(),
-            totals(null));
+            totals(null),
+            byChannel(null));
+    }
+
+    private List<ChannelMetrics> byChannel(String tenantId) {
+        return jdbcClient.sql(BY_CHANNEL_SQL)
+            .param("tenant", tenantId, java.sql.Types.VARCHAR)
+            .query((rs, rowNum) -> new ChannelMetrics(
+                rs.getString("channel"),
+                rs.getLong("jobs"),
+                rs.getLong("sent"),
+                rs.getLong("failed")))
+            .list();
     }
 
     private DeliveryTotals totals(String tenantId) {

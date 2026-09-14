@@ -150,7 +150,7 @@ curl "http://localhost:8080/api/v1/metrics?tenantId=portfolio&days=30" \
   -H "X-Notify-Api-Key: notify_live_..."
 ```
 
-The response carries `tenant` totals (events, jobs, sent, failed, pending, attempts, successRate, medianDeliveryMs), `byChannel`, and `byDay` for the requested window. Tenants listed in `NOTIFY_METRICS_PLATFORM_TENANTS` (default `portfolio`) also receive a `platform` block with counts across all tenants.
+The response carries `tenant` totals (events, jobs, sent, failed, pending, attempts, successRate, medianDeliveryMs), `byChannel`, and `byDay` for the requested window. Tenants listed in `NOTIFY_METRICS_PLATFORM_TENANTS` (default `portfolio`) also receive a `platform` block with totals and a per-channel breakdown across all tenants.
 
 ## Failed Job Visibility
 
