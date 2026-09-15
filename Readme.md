@@ -1,6 +1,48 @@
 # Notify
 
-Event-driven notification service for multiple products and tenants.
+Multi-tenant notification service: a product posts an event, Notify turns it into one job per channel from the tenant's rules, renders the tenant's template, and delivers in-app, email and push with retries, recovery and a full attempt log. Java 21, Spring Boot 3.5, RabbitMQ, PostgreSQL, Flyway. In production since May 2026.
+
+Case study and numbers: [satyamkumarsingh.com/work/notify](https://satyamkumarsingh.com/work/notify) · design write-up: [What 1,346 notification jobs taught me about async delivery](https://satyamkumarsingh.com/writing/1346-notification-jobs) · live reliability ledger: [satyamkumarsingh.com/contact#ledger](https://satyamkumarsingh.com/contact#ledger)
+
+## Measured in production
+
+| Metric | Value | Source |
+|---|---|---|
+| Delivery success | 98.1% (1,321 of 1,346 jobs) | `notification_jobs`, production Postgres, 14 Sep 2026 |
+| In-app success | 100% (712 of 712) | same query, `channel = IN_APP` |
+| Retries needed | 32 across 1,378 attempts | `notification_delivery_attempts`, 14 Sep 2026 |
+| Events ingested | 712 since 18 May 2026 | `notification_events`, 14 Sep 2026 |
+
+The two tenants are CampusCritique (Connect bookings, reminders, refunds, payouts) and the contact form on satyamkumarsingh.com.
+
+## How it works
+
+```
+POST /api/v1/events  --X-Notify-Api-Key-->  notification_events (RECEIVED -> QUEUED, commit)
+        |                                            |
+        |                                   afterCommit: publish to RabbitMQ (notify.events)
+        |                                            |   publish failed? recovery sweep republishes
+        |                                            v   QUEUED events older than 120 s, every 60 s
+        |                                   consumer: tenant rules -> one job per channel,
+        |                                   template rendered at creation (idempotent per event+channel)
+        |                                            |
+        v                                            v
+   202 { status: QUEUED }               delivery worker every 5 s, batch 50:
+                                        claim (FOR UPDATE) -> handler with 20 s timeout -> record attempt
+                                        retryable? -> next attempt in 60 s, max 3   else FAILED
+                                        channels: in-app (stored here), email (Resend), push (Firebase, VAPID)
+```
+
+Design decisions, in one line each:
+
+- **Commit, then publish, then sweep.** The event row is the outbox; a stale `QUEUED` row is the signal to republish. No distributed transaction.
+- **Idempotent at every hop.** Idempotency key at ingest; `existsByEventIdAndChannel` plus a unique constraint at fan-out; row lock at claim.
+- **Claim and finalise one job at a time**, each in its own transaction, so one failure cannot roll back deliveries that already happened.
+- **Failures are classified by the handler** (`DeliveryException(message, retryable)`); the worker retries exactly what can change on a retry.
+- **Off by default.** Email and push stay disabled until credentials exist; misconfiguration fails startup, not delivery at 2am.
+- **Templates in Postgres per tenant**, versioned by Flyway migration, with a `render-test` endpoint.
+
+Endpoints under `/api/v1`: `events` (ingest, status), `jobs/failed`, `templates` (CRUD, render-test), `in-app-notifications` (list, unread count, read), `push-subscriptions`, `metrics` (totals, per channel, per day, median ingest-to-delivered). Health at `/actuator/health`.
 
 ## Deployment
 
