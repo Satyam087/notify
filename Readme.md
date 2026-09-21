@@ -13,7 +13,7 @@ Case study and numbers: [satyamkumarsingh.com/work/notify](https://satyamkumarsi
 | Retries needed | 32 across 1,378 attempts | `notification_delivery_attempts`, 14 Sep 2026 |
 | Events ingested | 712 since 18 May 2026 | `notification_events`, 14 Sep 2026 |
 
-The two tenants are CampusCritique (Connect bookings, reminders, refunds, payouts) and the contact form on satyamkumarsingh.com.
+The three tenants are CampusCritique (Connect bookings, reminders, refunds, payouts), the contact form on satyamkumarsingh.com, and the contact form on Nimit Jain's portfolio.
 
 ## How it works
 
